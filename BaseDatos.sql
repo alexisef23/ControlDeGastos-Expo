@@ -1,0 +1,71 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.perfiles (
+  id uuid NOT NULL,
+  nombre text NOT NULL,
+  email text NOT NULL UNIQUE,
+  rol text CHECK (rol = ANY (ARRAY['ADMIN'::text, 'EMPLEADO'::text])),
+  telefono text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT perfiles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.gastos (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  empleado_id uuid NOT NULL,
+  empleado_nombre text,
+  monto numeric NOT NULL,
+  categoria text,
+  subcategoria text,
+  metodo_pago text CHECK (metodo_pago = ANY (ARRAY['efectivo'::text, 'tarjeta'::text, 'tarjeta_credito'::text, 'tarjeta_debito'::text])),
+  justificacion text,
+  foto_url text,
+  status text DEFAULT 'PENDING'::text CHECK (status = ANY (ARRAY['PENDING'::text, 'APPROVED'::text, 'REJECTED'::text, 'ACTION_REQUIRED'::text])),
+  rejection_feedback text,
+  created_at timestamp with time zone DEFAULT now(),
+  approved_at timestamp with time zone,
+  fecha_comprobante date,
+  proveedor text,
+  cliente text,
+  sucursal text,
+  tipo_tarjeta character varying,
+  ubicacion_registro character varying,
+  CONSTRAINT gastos_pkey PRIMARY KEY (id),
+  CONSTRAINT gastos_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
+);
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  timestamp timestamp with time zone DEFAULT now(),
+  action text CHECK (action = ANY (ARRAY['CREATE'::text, 'APPROVE'::text, 'REJECT'::text, 'UPDATE'::text])),
+  actor_id uuid,
+  target_id text NOT NULL,
+  details text,
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.usuarios (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nombre text NOT NULL,
+  email text NOT NULL UNIQUE,
+  password text NOT NULL,
+  rol text NOT NULL CHECK (rol = ANY (ARRAY['ADMIN'::text, 'EMPLEADO'::text])),
+  telefono text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT usuarios_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.clientes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nombre text NOT NULL UNIQUE,
+  CONSTRAINT clientes_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.categorias (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nombre text NOT NULL UNIQUE,
+  CONSTRAINT categorias_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.subcategorias (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  categoria_id uuid NOT NULL,
+  nombre text NOT NULL,
+  CONSTRAINT subcategorias_pkey PRIMARY KEY (id),
+  CONSTRAINT subcat_cat_fkey FOREIGN KEY (categoria_id) REFERENCES public.categorias(id)
+);
