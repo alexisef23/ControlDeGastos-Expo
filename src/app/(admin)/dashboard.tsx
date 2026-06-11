@@ -267,6 +267,25 @@ export default function AdminDashboard() {
 
   // Eliminar Usuario
   const handleDeleteUser = async (id: string, name: string) => {
+    const performDelete = async () => {
+      try {
+        const { error } = await supabase.from('usuarios').delete().eq('id', id);
+        if (error) throw error;
+        Alert.alert('Éxito', 'Personal eliminado.');
+        await refreshData();
+      } catch (err: any) {
+        Alert.alert('Error al eliminar', err.message || 'No se pudo eliminar el usuario.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirm = window.confirm(`¿Estás seguro de que deseas eliminar a ${name}? Esta acción podría causar inconsistencias en gastos anteriores.`);
+      if (confirm) {
+        await performDelete();
+      }
+      return;
+    }
+
     Alert.alert(
       'Confirmar Eliminación',
       `¿Estás seguro de que deseas eliminar a ${name}? Esta acción podría causar inconsistencias en gastos anteriores.`,
@@ -275,16 +294,7 @@ export default function AdminDashboard() {
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              const { error } = await supabase.from('usuarios').delete().eq('id', id);
-              if (error) throw error;
-              Alert.alert('Éxito', 'Personal eliminado.');
-              await refreshData();
-            } catch (err: any) {
-              Alert.alert('Error al eliminar', err.message || 'No se pudo eliminar el usuario.');
-            }
-          },
+          onPress: performDelete,
         },
       ]
     );
