@@ -11,6 +11,7 @@ import {
   useColorScheme,
   Alert,
   Image,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
@@ -105,15 +106,25 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
+    const performLogout = async () => {
+      await AuthService.logout();
+      router.replace('/');
+    };
+
+    if (Platform.OS === 'web') {
+      const confirm = window.confirm('¿Estás seguro de que deseas cerrar sesión?');
+      if (confirm) {
+        await performLogout();
+      }
+      return;
+    }
+
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Cerrar Sesión',
         style: 'destructive',
-        onPress: async () => {
-          await AuthService.logout();
-          router.replace('/');
-        },
+        onPress: performLogout,
       },
     ]);
   };
