@@ -120,12 +120,13 @@ export default function EvidenciaForm() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsMultipleSelection: type === 'adicional',
+        allowsEditing: type !== 'adicional',
         quality: 0.4,
         base64: true,
       });
 
-      if (!result.canceled && result.assets?.[0]) {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
         if (type === 'antes') {
           setImageUriAntes(result.assets[0].uri);
           setImageBase64Antes(result.assets[0].base64 || null);
@@ -133,10 +134,11 @@ export default function EvidenciaForm() {
           setImageUriDespues(result.assets[0].uri);
           setImageBase64Despues(result.assets[0].base64 || null);
         } else if (type === 'adicional') {
-          setFotosAdicionales((prev) => [
-            ...prev,
-            { uri: result.assets[0].uri, base64: result.assets[0].base64 || null },
-          ]);
+          const newPhotos = result.assets.map((asset) => ({
+            uri: asset.uri,
+            base64: asset.base64 || null,
+          }));
+          setFotosAdicionales((prev) => [...prev, ...newPhotos]);
         }
       }
     } catch (err) {
