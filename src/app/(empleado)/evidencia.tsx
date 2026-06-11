@@ -63,6 +63,7 @@ export default function EvidenciaForm() {
   }, [router]);
 
   const requestPermissions = async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return true;
     const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
     const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
@@ -77,6 +78,10 @@ export default function EvidenciaForm() {
   };
 
   const handleCapturePhoto = async (type: 'antes' | 'despues' | 'adicional') => {
+    if (Platform.OS === 'web') {
+      await handleSelectGallery(type);
+      return;
+    }
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 

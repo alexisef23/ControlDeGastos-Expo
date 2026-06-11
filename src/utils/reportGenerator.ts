@@ -1,6 +1,7 @@
 import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import { Gasto } from '../services/supabase';
 import { LOGO_BASE64 } from './logoBase64';
 
@@ -274,6 +275,11 @@ export const ReportGenerator = {
     `;
 
     try {
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html: htmlContent });
+        return;
+      }
+
       // Generar archivo PDF temporal y obtener su base64 para evitar bloqueos del sistema de archivos en Android
       const { base64 } = await Print.printToFileAsync({ html: htmlContent, base64: true });
       
@@ -345,6 +351,18 @@ export const ReportGenerator = {
     });
 
     try {
+      if (Platform.OS === 'web') {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
       // Guardar el archivo en el sistema de archivos local de Expo (en cacheDirectory para compartir de forma segura)
       const fileUri = `${cacheDirectory}${fileName}`;
       await writeAsStringAsync(fileUri, csvContent, {

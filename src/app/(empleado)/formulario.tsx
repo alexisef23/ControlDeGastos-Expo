@@ -227,6 +227,7 @@ export default function GastoForm() {
 
   // Solicitar permisos de cámara/galería
   const requestPermissions = async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return true;
     const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
     const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
@@ -241,6 +242,10 @@ export default function GastoForm() {
   };
 
   const handleCapturePhoto = async () => {
+    if (Platform.OS === 'web') {
+      await handleSelectGallery();
+      return;
+    }
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -685,43 +690,55 @@ export default function GastoForm() {
                 iconName="logo-usd"
               />
 
-              <TouchableOpacity onPress={() => setShowDatePicker(true)} activeOpacity={0.7}>
-                <View pointerEvents="none">
-                  <CustomInput
-                    label="Fecha de Gasto *"
-                    placeholder="Selecciona la fecha"
-                    value={fechaComprobante}
-                    editable={false}
-                    iconName="calendar-outline"
-                  />
-                </View>
-              </TouchableOpacity>
+              {Platform.OS === 'web' ? (
+                <CustomInput
+                  label="Fecha de Gasto (DD/MM/AAAA) *"
+                  placeholder="DD/MM/AAAA"
+                  value={fechaComprobante}
+                  onChangeText={setFechaComprobante}
+                  iconName="calendar-outline"
+                />
+              ) : (
+                <>
+                  <TouchableOpacity onPress={() => setShowDatePicker(true)} activeOpacity={0.7}>
+                    <View pointerEvents="none">
+                      <CustomInput
+                        label="Fecha de Gasto *"
+                        placeholder="Selecciona la fecha"
+                        value={fechaComprobante}
+                        editable={false}
+                        iconName="calendar-outline"
+                      />
+                    </View>
+                  </TouchableOpacity>
 
-              {showDatePicker && (
-                <View style={{
-                  backgroundColor: themeColors.backgroundElement,
-                  borderRadius: BorderRadius.medium,
-                  padding: Spacing.two,
-                  borderWidth: 1,
-                  borderColor: themeColors.border,
-                  marginTop: -Spacing.two,
-                  marginBottom: Spacing.two
-                }}>
-                  <DateTimePicker
-                    value={dateValue}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={onChangeDate}
-                    maximumDate={new Date()}
-                  />
-                  {Platform.OS === 'ios' && (
-                    <CustomButton
-                      title="Confirmar Fecha"
-                      onPress={() => setShowDatePicker(false)}
-                      style={{ marginTop: Spacing.one }}
-                    />
+                  {showDatePicker && (
+                    <View style={{
+                      backgroundColor: themeColors.backgroundElement,
+                      borderRadius: BorderRadius.medium,
+                      padding: Spacing.two,
+                      borderWidth: 1,
+                      borderColor: themeColors.border,
+                      marginTop: -Spacing.two,
+                      marginBottom: Spacing.two
+                    }}>
+                      <DateTimePicker
+                        value={dateValue}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={onChangeDate}
+                        maximumDate={new Date()}
+                      />
+                      {Platform.OS === 'ios' && (
+                        <CustomButton
+                          title="Confirmar Fecha"
+                          onPress={() => setShowDatePicker(false)}
+                          style={{ marginTop: Spacing.one }}
+                        />
+                      )}
+                    </View>
                   )}
-                </View>
+                </>
               )}
 
               <CustomInput

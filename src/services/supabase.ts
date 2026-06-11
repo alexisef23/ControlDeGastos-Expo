@@ -8,14 +8,36 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase URL or Anon Key is missing in environment variables.');
 }
 
+const isBrowser = typeof window !== 'undefined';
+
+const ssrSafeStorage = {
+  getItem: async (key: string) => {
+    if (isBrowser) {
+      return AsyncStorage.getItem(key);
+    }
+    return null;
+  },
+  setItem: async (key: string, value: string) => {
+    if (isBrowser) {
+      await AsyncStorage.setItem(key, value);
+    }
+  },
+  removeItem: async (key: string) => {
+    if (isBrowser) {
+      await AsyncStorage.removeItem(key);
+    }
+  },
+};
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: ssrSafeStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
 });
+
 
 export interface Usuario {
   id: string;
@@ -96,21 +118,28 @@ export const AuthService = {
     }
 
     // Guardar usuario en almacenamiento local
-    await AsyncStorage.setItem('logged_user', JSON.stringify(data));
+    if (isBrowser) {
+      await AsyncStorage.setItem('logged_user', JSON.stringify(data));
+    }
     return data as Usuario;
   },
 
   async logout(): Promise<void> {
-    await AsyncStorage.removeItem('logged_user');
+    if (isBrowser) {
+      await AsyncStorage.removeItem('logged_user');
+    }
   },
 
   async getCurrentUser(): Promise<Usuario | null> {
-    const userStr = await AsyncStorage.getItem('logged_user');
-    if (!userStr) return null;
-    try {
-      return JSON.parse(userStr) as Usuario;
-    } catch {
-      return null;
+    if (isBrowser) {
+      const userStr = await AsyncStorage.getItem('logged_user');
+      if (!userStr) return null;
+      try {
+        return JSON.parse(userStr) as Usuario;
+      } catch {
+        return null;
+      }
     }
+    return null;
   }
 };

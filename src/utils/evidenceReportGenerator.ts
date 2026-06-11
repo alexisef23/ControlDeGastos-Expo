@@ -1,6 +1,7 @@
 import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import { Evidencia } from '../services/supabase';
 import { LOGO_BASE64 } from './logoBase64';
 
@@ -353,6 +354,11 @@ export const EvidenceReportGenerator = {
     `;
 
     try {
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html: htmlContent });
+        return;
+      }
+
       // Generar archivo PDF temporal
       const { base64 } = await Print.printToFileAsync({ html: htmlContent, base64: true });
       
