@@ -57,7 +57,8 @@ export const EvidenceReportGenerator = {
     evidencia: Omit<Evidencia, 'id'> & { id?: string },
     antesBase64: string | null,
     despuesBase64: string | null,
-    userName: string
+    userName: string,
+    fotosAdicionales: string[] = []
   ): Promise<void> {
     const fecha = evidencia.created_at
       ? new Date(evidencia.created_at).toLocaleString('es-MX')
@@ -72,6 +73,28 @@ export const EvidenceReportGenerator = {
       : null;
 
     let fotosHtml = '';
+
+    let fotosAdicionalesHtml = '';
+    if (fotosAdicionales && fotosAdicionales.length > 0) {
+      fotosAdicionales.forEach((foto, index) => {
+        if (!foto) return;
+        const imgSrc = foto.startsWith('data:') || foto.startsWith('http') 
+          ? foto 
+          : `data:image/jpeg;base64,${foto}`;
+        
+        fotosAdicionalesHtml += `
+          <div style="page-break-before: always; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 98vh; page-break-inside: avoid; text-align: center; box-sizing: border-box; padding: 20px;">
+            <div style="font-size: 12px; font-weight: bold; color: #1a365d; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px;">Foto Adicional #${index + 1}</div>
+            <div style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; max-height: 85vh; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; box-sizing: border-box;">
+              <img src="${imgSrc}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;" />
+            </div>
+            <div style="margin-top: 15px; font-size: 8px; color: #a0aec0; letter-spacing: 0.5px;">
+              Reporte de Evidencias INTTEC - Anexo Fotográfico Adicional
+            </div>
+          </div>
+        `;
+      });
+    }
 
     if (antesImgSrc || despuesImgSrc) {
       fotosHtml = `
@@ -324,6 +347,7 @@ export const EvidenceReportGenerator = {
         <div class="footer">
           Documento Generado por el Sistema de Control de Gastos y Evidencias INTTEC. CONFIDENCIAL.
         </div>
+        ${fotosAdicionalesHtml}
       </body>
       </html>
     `;

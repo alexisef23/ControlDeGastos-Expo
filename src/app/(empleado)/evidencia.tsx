@@ -39,6 +39,7 @@ export default function EvidenciaForm() {
   const [imageBase64Antes, setImageBase64Antes] = useState<string | null>(null);
   const [imageUriDespues, setImageUriDespues] = useState<string | null>(null);
   const [imageBase64Despues, setImageBase64Despues] = useState<string | null>(null);
+  const [fotosAdicionales, setFotosAdicionales] = useState<{ uri: string; base64: string | null }[]>([]);
 
   // Paso 2: Detalles del Trabajo
   const [cliente, setCliente] = useState('');
@@ -75,7 +76,7 @@ export default function EvidenciaForm() {
     return true;
   };
 
-  const handleCapturePhoto = async (type: 'antes' | 'despues') => {
+  const handleCapturePhoto = async (type: 'antes' | 'despues' | 'adicional') => {
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -91,9 +92,14 @@ export default function EvidenciaForm() {
         if (type === 'antes') {
           setImageUriAntes(result.assets[0].uri);
           setImageBase64Antes(result.assets[0].base64 || null);
-        } else {
+        } else if (type === 'despues') {
           setImageUriDespues(result.assets[0].uri);
           setImageBase64Despues(result.assets[0].base64 || null);
+        } else if (type === 'adicional') {
+          setFotosAdicionales((prev) => [
+            ...prev,
+            { uri: result.assets[0].uri, base64: result.assets[0].base64 || null },
+          ]);
         }
       }
     } catch (err) {
@@ -102,7 +108,7 @@ export default function EvidenciaForm() {
     }
   };
 
-  const handleSelectGallery = async (type: 'antes' | 'despues') => {
+  const handleSelectGallery = async (type: 'antes' | 'despues' | 'adicional') => {
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -118,9 +124,14 @@ export default function EvidenciaForm() {
         if (type === 'antes') {
           setImageUriAntes(result.assets[0].uri);
           setImageBase64Antes(result.assets[0].base64 || null);
-        } else {
+        } else if (type === 'despues') {
           setImageUriDespues(result.assets[0].uri);
           setImageBase64Despues(result.assets[0].base64 || null);
+        } else if (type === 'adicional') {
+          setFotosAdicionales((prev) => [
+            ...prev,
+            { uri: result.assets[0].uri, base64: result.assets[0].base64 || null },
+          ]);
         }
       }
     } catch (err) {
@@ -168,11 +179,14 @@ export default function EvidenciaForm() {
         resumen_ia: resumenIA,
       };
 
+      const extraPhotos = fotosAdicionales.map((f) => f.base64 || f.uri);
+
       await EvidenceReportGenerator.exportToPDF(
         evData,
         imageBase64Antes,
         imageBase64Despues,
-        currentUser?.nombre || 'Técnico Autorizado'
+        currentUser?.nombre || 'Técnico Autorizado',
+        extraPhotos
       );
     } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo exportar el PDF.');
@@ -242,6 +256,18 @@ export default function EvidenciaForm() {
         fotoDespuesUrl = await uploadPhoto(imageBase64Despues, 'despues');
       }
 
+      // Subir fotos adicionales
+      const fotosAdicionalesUrls: string[] = [];
+      if (fotosAdicionales.length > 0) {
+        for (let i = 0; i < fotosAdicionales.length; i++) {
+          const extra = fotosAdicionales[i];
+          if (extra.base64) {
+            const url = await uploadPhoto(extra.base64, `extra_${i}`);
+            if (url) fotosAdicionalesUrls.push(url);
+          }
+        }
+      }
+
       const { error: dbError } = await supabase.from('evidencias').insert([
         {
           empleado_id: currentUser.id,
@@ -252,6 +278,7 @@ export default function EvidenciaForm() {
           observaciones: observaciones.trim() || null,
           foto_antes_url: fotoAntesUrl,
           foto_despues_url: fotoDespuesUrl,
+          fotos_adicionales_urls: fotosAdicionalesUrls.length > 0 ? fotosAdicionalesUrls : null,
           resumen_ia: resumenIA,
         },
       ]);
@@ -402,6 +429,46 @@ export default function EvidenciaForm() {
                   style={[styles.actionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
                 >
                   <Ionicons name="images" size={20} color={themeColors.success} />
+                  <Text style={[styles.actionBtnText, { color: themeColors.text }]}>Galería</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Fotos Adicionales */}
+              <Text style={[styles.photoLabel, { color: themeColors.text, marginTop: Spacing.four }]}>
+                Fotografías Adicionales (Opcionales)
+              </Text>
+
+              {fotosAdicionales.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.adicionalesList}>
+                  {fotosAdicionales.map((item, index) => (
+                    <View key={index} style={[styles.adicionalCard, { borderColor: themeColors.border }]}>
+                      <Image source={{ uri: item.uri }} style={styles.adicionalImage} />
+                      <TouchableOpacity
+                        style={styles.removeAdicionalBtn}
+                        onPress={() => {
+                          setFotosAdicionales((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                      >
+                        <Ionicons name="trash" size={14} color="#ffffff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+
+              <View style={styles.actionGrid}>
+                <TouchableOpacity
+                  onPress={() => handleCapturePhoto('adicional')}
+                  style={[styles.actionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                >
+                  <Ionicons name="camera" size={20} color={themeColors.accent} />
+                  <Text style={[styles.actionBtnText, { color: themeColors.text }]}>Tomar Foto</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleSelectGallery('adicional')}
+                  style={[styles.actionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                >
+                  <Ionicons name="images" size={20} color={themeColors.accent} />
                   <Text style={[styles.actionBtnText, { color: themeColors.text }]}>Galería</Text>
                 </TouchableOpacity>
               </View>
@@ -661,6 +728,36 @@ const styles = StyleSheet.create({
   reportPreviewText: {
     fontSize: 13,
     lineHeight: 20,
+  },
+  adicionalesList: {
+    flexDirection: 'row',
+    marginBottom: Spacing.two,
+  },
+  adicionalCard: {
+    width: 100,
+    height: 100,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginRight: Spacing.two,
+    position: 'relative',
+    backgroundColor: '#000',
+  },
+  adicionalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  removeAdicionalBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   actionColumn: {
     marginTop: Spacing.two,

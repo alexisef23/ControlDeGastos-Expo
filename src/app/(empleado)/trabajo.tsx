@@ -105,7 +105,8 @@ export default function MiTrabajoScreen() {
         ev,
         ev.foto_antes_url || null,
         ev.foto_despues_url || null,
-        ev.empleado_nombre || currentUser?.nombre || 'Técnico Autorizado'
+        ev.empleado_nombre || currentUser?.nombre || 'Técnico Autorizado',
+        ev.fotos_adicionales_urls || []
       );
     } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo exportar el PDF.');
@@ -330,6 +331,21 @@ export default function MiTrabajoScreen() {
                       <Text style={[styles.detailValue, { color: themeColors.text }]}>
                         {selectedEvidencia.observaciones}
                       </Text>
+                    </View>
+                  )}
+
+                  {selectedEvidencia.fotos_adicionales_urls && selectedEvidencia.fotos_adicionales_urls.length > 0 && (
+                    <View style={styles.detailItem}>
+                      <Text style={[styles.detailLabel, { color: themeColors.textSecondary, marginBottom: Spacing.two }]}>
+                        Fotos Adicionales
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.adicionalPhotosScroll}>
+                        {selectedEvidencia.fotos_adicionales_urls.map((url, index) => (
+                          <View key={index} style={styles.adicionalPhotoCard}>
+                            <Image source={{ uri: url }} style={styles.adicionalModalImage} resizeMode="cover" />
+                          </View>
+                        ))}
+                      </ScrollView>
                     </View>
                   )}
 
@@ -581,5 +597,23 @@ const styles = StyleSheet.create({
   },
   modalActionContainer: {
     marginTop: Spacing.four,
+  },
+  adicionalPhotosScroll: {
+    flexDirection: 'row',
+    marginBottom: Spacing.two,
+  },
+  adicionalPhotoCard: {
+    width: 120,
+    height: 120,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    borderColor: '#eee',
+    overflow: 'hidden',
+    marginRight: Spacing.two,
+    backgroundColor: '#000',
+  },
+  adicionalModalImage: {
+    width: '100%',
+    height: '100%',
   },
 });

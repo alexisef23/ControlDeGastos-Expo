@@ -59,6 +59,7 @@ export interface Evidencia {
   observaciones?: string | null;
   foto_antes_url?: string | null;
   foto_despues_url?: string | null;
+  fotos_adicionales_urls?: string[] | null;
   resumen_ia?: string | null;
   created_at?: string;
 }
