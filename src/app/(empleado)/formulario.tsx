@@ -17,7 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
 import { supabase, AuthService, Usuario, CatalogoItem, SubcategoriaItem } from '@/services/supabase';
-import { SyncService } from '@/services/sync';
+import { SyncService, base64ToArrayBuffer } from '@/services/sync';
 import { GeminiService } from '@/services/gemini';
 import StepIndicator from '@/components/StepIndicator';
 import CustomInput from '@/components/CustomInput';
@@ -25,6 +25,41 @@ import CustomButton from '@/components/CustomButton';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+
+const ESTADOS_MEXICO = [
+  'Aguascalientes',
+  'Baja California',
+  'Baja California Sur',
+  'Campeche',
+  'Chiapas',
+  'Chihuahua',
+  'Coahuila',
+  'Colima',
+  'Ciudad de México',
+  'Durango',
+  'Guanajuato',
+  'Guerrero',
+  'Hidalgo',
+  'Jalisco',
+  'Estado de México',
+  'Michoacán',
+  'Morelos',
+  'Nayarit',
+  'Nuevo León',
+  'Oaxaca',
+  'Puebla',
+  'Querétaro',
+  'Quintana Roo',
+  'San Luis Potosí',
+  'Sinaloa',
+  'Sonora',
+  'Tabasco',
+  'Tamaulipas',
+  'Tlaxcala',
+  'Veracruz',
+  'Yucatán',
+  'Zacatecas'
+];
 
 export default function GastoForm() {
   const router = useRouter();
@@ -63,6 +98,17 @@ export default function GastoForm() {
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'tarjeta_credito' | 'tarjeta_debito'>('efectivo');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateValue, setDateValue] = useState(new Date());
+  const [alertaPolitica, setAlertaPolitica] = useState<string | null>(null);
+  
+  // Estado de la República
+  const [selectedEstado, setSelectedEstado] = useState<string>('');
+  const [showEstDropdown, setShowEstDropdown] = useState(false);
+
+  // Alerta local por límites de alimentos según el Estado
+  const [alertaLocal, setAlertaLocal] = useState<string | null>(null);
+
+
+
 
   const formatFriendlyToDb = (friendlyStr: string) => {
     if (!friendlyStr) return '';
@@ -71,18 +117,6 @@ export default function GastoForm() {
       return `${parts[2]}-${parts[1]}-${parts[0]}`; // YYYY-MM-DD
     }
     return friendlyStr;
-  };
-
-  const handleFechaChange = (text: string) => {
-    const cleaned = text.replace(/[^0-9]/g, '');
-    let formatted = cleaned;
-    if (cleaned.length > 2) {
-      formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2)}`;
-    }
-    if (cleaned.length > 4) {
-      formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}/${cleaned.slice(4, 8)}`;
-    }
-    setFechaComprobante(formatted);
   };
 
   const onChangeDate = (event: any, selectedDate?: Date) => {
@@ -110,17 +144,57 @@ export default function GastoForm() {
   const [showCliDropdown, setShowCliDropdown] = useState(false);
 
   useEffect(() => {
-    const init = async () => {
-      const user = await AuthService.getCurrentUser();
-      if (!user) {
-        router.replace('/');
-        return;
+    const valMonto = Number(monto);
+    if (!valMonto || isNaN(valMonto) || !selectedEstado || !selectedCategoria) {
+      setAlertaLocal(null);
+      return;
+    }
+
+    const isAlimentos = selectedCategoria.toLowerCase().includes('alimento') ||
+                        selectedCategoria.toLowerCase().includes('comida') ||
+                        selectedCategoria.toLowerCase().includes('consumo');
+
+    if (isAlimentos) {
+      const estadoNormalizado = selectedEstado.toUpperCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Eliminar acentos
+        
+      let limite = 0;
+      let costoTipo = '';
+      
+      const costoBajo = [
+        "CAMPECHE", "CHIAPAS", "CIUDAD DE MEXICO", "ESTADO DE MEXICO", 
+        "GUANAJUATO", "NAYARIT", "PUEBLA", "SONORA", "TLAXCALA", "ZACATECAS"
+      ];
+      const costoMedio = [
+        "AGUASCALIENTES", "BAJA CALIFORNIA SUR", "CHIHUAHUA", "COAHUILA", 
+        "DURANGO", "GUERRERO", "HIDALGO", "JALISCO", "MICHOACAN", 
+        "MORELOS", "OAXACA", "TABASCO", "VERACRUZ"
+      ];
+      const costoAlto = [
+        "BAJA CALIFORNIA", "COLIMA", "NUEVO LEON", "QUERETARO", 
+        "QUINTANA ROO", "SAN LUIS POTOSI", "SINALOA", "TAMAULIPAS", "YUCATAN"
+      ];
+      
+      if (costoBajo.includes(estadoNormalizado)) {
+        limite = 350;
+        costoTipo = 'Bajo';
+      } else if (costoMedio.includes(estadoNormalizado)) {
+        limite = 400;
+        costoTipo = 'Medio';
+      } else if (costoAlto.includes(estadoNormalizado)) {
+        limite = 450;
+        costoTipo = 'Alto';
       }
-      setCurrentUser(user);
-      await loadCatalogos();
-    };
-    init();
-  }, []);
+      
+      if (limite > 0 && valMonto > limite) {
+        setAlertaLocal(`Límite de alimentos excedido en ${selectedEstado} (Límite: $${limite} MXN - Consumo: $${valMonto} MXN)`);
+      } else {
+        setAlertaLocal(null);
+      }
+    } else {
+      setAlertaLocal(null);
+    }
+  }, [monto, selectedEstado, selectedCategoria]);
 
   const loadCatalogos = async () => {
     try {
@@ -137,6 +211,19 @@ export default function GastoForm() {
       console.error('Error loading catalogs:', err);
     }
   };
+
+  useEffect(() => {
+    const init = async () => {
+      const user = await AuthService.getCurrentUser();
+      if (!user) {
+        router.replace('/');
+        return;
+      }
+      setCurrentUser(user);
+      await loadCatalogos();
+    };
+    init();
+  }, [router]);
 
   // Solicitar permisos de cámara/galería
   const requestPermissions = async (): Promise<boolean> => {
@@ -161,7 +248,7 @@ export default function GastoForm() {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.5,
         base64: true,
       });
 
@@ -169,6 +256,7 @@ export default function GastoForm() {
         setImageUri(result.assets[0].uri);
         setImageBase64(result.assets[0].base64 || null);
         setScanSuccess(false); // Resetear bandera de escaneo anterior
+        setAlertaPolitica(null);
       }
     } catch (err) {
       console.error('Camera capture error:', err);
@@ -184,7 +272,7 @@ export default function GastoForm() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.5,
         base64: true,
       });
 
@@ -192,6 +280,7 @@ export default function GastoForm() {
         setImageUri(result.assets[0].uri);
         setImageBase64(result.assets[0].base64 || null);
         setScanSuccess(false);
+        setAlertaPolitica(null);
       }
     } catch (err) {
       console.error('Gallery select error:', err);
@@ -208,19 +297,112 @@ export default function GastoForm() {
       
       if (result.monto) setMonto(result.monto.toString());
       if (result.proveedor) setProveedor(result.proveedor);
+      if (result.sucursal) setSucursal(result.sucursal);
       
-      // Intentar pre-seleccionar categoría si coincide con una existente
-      if (result.categoria) {
-        const matchedCat = categorias.find(
-          (c) => c.nombre.toLowerCase().includes(result.categoria!.toLowerCase())
-        );
-        if (matchedCat) {
-          setSelectedCategoria(matchedCat.nombre);
+      // Actualizar fecha si la extrae
+      if (result.fecha) {
+        setFechaComprobante(result.fecha);
+        // Intentar parsear a objeto Date para el picker
+        const parts = result.fecha.split('/');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const year = parseInt(parts[2], 10);
+          const parsedDate = new Date(year, month, day);
+          if (!isNaN(parsedDate.getTime())) {
+            setDateValue(parsedDate);
+          }
         }
       }
 
+      // Actualizar método de pago si lo detecta
+      if (result.metodo_pago) {
+        setMetodoPago(result.metodo_pago);
+      }
+
+      // Sugerir justificación
+      if (result.justificacion_sugerida) {
+        setJustificacion(result.justificacion_sugerida);
+      }
+      
+      // Intentar pre-seleccionar categoría si coincide con una existente
+      if (result.categoria) {
+        const catSugerida = result.categoria.toLowerCase().trim();
+        
+        // Mapa de sinónimos para categorías conocidas
+        const categorySynonyms: { [key: string]: string[] } = {
+          'Alimentos': ['alimentos', 'comida', 'restaurante', 'desayuno', 'almuerzo', 'cena', 'bebida', 'consumo', 'alimentacion', 'cafeteria', 'oxxo', 'supermercado', 'comidas', 'restaurant', 'alimento'],
+          'Hospedaje': ['hospedaje', 'hotel', 'motel', 'airbnb', 'alojamiento', 'estancia', 'hospedajes', 'hotels'],
+          'Traslado': ['traslado', 'transporte', 'taxi', 'uber', 'didi', 'gasolina', 'combustible', 'peaje', 'caseta', 'estacionamiento', 'renta de auto', 'autobus', 'metro', 'casetas', 'peajes', 'traslados', 'viaticos'],
+          'Vuelos': ['vuelos', 'avion', 'aerolinea', 'boleto de avion', 'pasaje aereo', 'aeropuerto', 'vuelo', 'pasajes'],
+          'Equipo': ['equipo', 'computadora', 'laptop', 'celular', 'herramientas', 'oficina', 'papeleria', 'ferreteria', 'hardware', 'software', 'licencia', 'equipos', 'papelería', 'materiales']
+        };
+
+        // 1. Buscar coincidencia exacta o por subcadena
+        let matchedCat = categorias.find(
+          (c) => c.nombre.toLowerCase().includes(catSugerida) ||
+                 catSugerida.includes(c.nombre.toLowerCase())
+        );
+
+        // 2. Si no coincide, buscar por sinónimos
+        if (!matchedCat) {
+          for (const [key, synonyms] of Object.entries(categorySynonyms)) {
+            // Si el texto sugerido coincide con algún sinónimo
+            const hasSynonym = synonyms.some(syn => catSugerida.includes(syn) || syn.includes(catSugerida));
+            if (hasSynonym) {
+              // Buscar si la categoría de la DB existe para esa llave
+              const found = categorias.find(c => c.nombre.toLowerCase() === key.toLowerCase());
+              if (found) {
+                matchedCat = found;
+                break;
+              }
+            }
+          }
+        }
+
+        if (matchedCat) {
+          setSelectedCategoria(matchedCat.nombre);
+          
+          // Intentar pre-seleccionar subcategoría también si coincide
+          if (result.subcategoria) {
+            const subcatSugerida = result.subcategoria.toLowerCase().trim();
+            const subcatsOfCat = subcategorias.filter((s) => s.categoria_id === matchedCat!.id);
+            const matchedSub = subcatsOfCat.find(
+              (s) => s.nombre.toLowerCase().includes(subcatSugerida) ||
+                     subcatSugerida.includes(s.nombre.toLowerCase())
+            );
+            if (matchedSub) {
+              setSelectedSubcategoria(matchedSub.nombre);
+            }
+          }
+        }
+      }
+
+      // Actualizar Estado si se detecta
+      if (result.estado) {
+        // Encontrar coincidencia insensible a mayúsculas/minúsculas y acentos
+        const estadoNormalizado = result.estado.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const matchedEst = ESTADOS_MEXICO.find(est => {
+          const estNorm = est.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          return estNorm === estadoNormalizado;
+        });
+        if (matchedEst) {
+          setSelectedEstado(matchedEst);
+        }
+      }
+
+      // Alerta de política
+      if (result.alerta_politica) {
+        setAlertaPolitica(result.alerta_politica);
+      } else {
+        setAlertaPolitica(null);
+      }
+
       setScanSuccess(true);
-      Alert.alert('Escaneo Completado', 'La Inteligencia Artificial extrajo el monto y el proveedor del ticket.');
+      Alert.alert(
+        'Escaneo Completado',
+        'La Inteligencia Artificial extrajo el monto, proveedor, fecha, método de pago, el Estado y sugirió una justificación.'
+      );
       // Ir automáticamente al paso 2
       setCurrentStep(2);
     } catch (err: any) {
@@ -268,6 +450,12 @@ export default function GastoForm() {
     
     const dbFecha = formatFriendlyToDb(fechaComprobante);
     
+    let finalJustificacion = justificacion.trim();
+    const combinedAlert = [alertaPolitica, alertaLocal].filter(Boolean).join(' | ');
+    if (combinedAlert) {
+      finalJustificacion = `[ALERTA IA: ${combinedAlert}]\n\n${finalJustificacion}`;
+    }
+    
     const gastoPayload = {
       empleado_id: currentUser.id,
       empleado_nombre: currentUser.nombre,
@@ -275,13 +463,14 @@ export default function GastoForm() {
       categoria: selectedCategoria,
       subcategoria: selectedSubcategoria || null,
       metodo_pago: metodoPago,
-      justificacion: justificacion.trim(),
+      justificacion: finalJustificacion,
       fecha_comprobante: dbFecha,
       proveedor: proveedor.trim() || null,
       cliente: selectedCliente || null,
       sucursal: sucursal.trim() || null,
       tipo_tarjeta: null,
       ubicacion_registro: 'Móvil',
+      estado: selectedEstado || null,
     };
 
     setIsSubmitting(true);
@@ -294,28 +483,7 @@ export default function GastoForm() {
         let publicUrl = '';
         if (imageBase64) {
           const fileName = `${currentUser.id}/${Date.now()}.jpg`;
-          
-          // Crear array buffer desde base64
-          const lookup = new Uint8Array(256);
-          for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
-          
-          let bufferLength = imageBase64.length * 0.75;
-          if (imageBase64[imageBase64.length - 1] === '=') {
-            bufferLength--;
-            if (imageBase64[imageBase64.length - 2] === '=') bufferLength--;
-          }
-          const arrayBuffer = new ArrayBuffer(bufferLength);
-          const bytes = new Uint8Array(arrayBuffer);
-          let p = 0;
-          for (let i = 0; i < imageBase64.length; i += 4) {
-            const encoded1 = lookup[imageBase64.charCodeAt(i)];
-            const encoded2 = lookup[imageBase64.charCodeAt(i + 1)];
-            const encoded3 = lookup[imageBase64.charCodeAt(i + 2)];
-            const encoded4 = lookup[imageBase64.charCodeAt(i + 3)];
-            bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
-            if (p < bufferLength) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
-            if (p < bufferLength) bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
-          }
+          const arrayBuffer = base64ToArrayBuffer(imageBase64);
 
           const { error: uploadError } = await supabase.storage
             .from('tickets')
@@ -372,6 +540,10 @@ export default function GastoForm() {
         Alert.alert('Validación', 'Por favor ingresa la fecha en formato DD/MM/AAAA (ej. 09/06/2026).');
         return;
       }
+      if (!selectedEstado) {
+        Alert.alert('Validación', 'Por favor selecciona el Estado de la República.');
+        return;
+      }
     }
     setCurrentStep((prev) => prev + 1);
   };
@@ -380,7 +552,6 @@ export default function GastoForm() {
     setCurrentStep((prev) => prev - 1);
   };
 
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
@@ -420,6 +591,7 @@ export default function GastoForm() {
                         setImageUri(null);
                         setImageBase64(null);
                         setScanSuccess(false);
+                        setAlertaPolitica(null);
                       }}
                     >
                       <Ionicons name="trash" size={20} color="#ffffff" />
@@ -492,6 +664,18 @@ export default function GastoForm() {
                 2. Detalles de la Compra
               </Text>
 
+              {(alertaPolitica || alertaLocal) && (
+                <View style={[styles.alertBanner, { backgroundColor: themeColors.danger + '15', borderColor: themeColors.danger }]}>
+                  <Ionicons name="warning-outline" size={22} color={themeColors.danger} style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.alertTitle, { color: themeColors.danger }]}>Alerta de Políticas de Gasto</Text>
+                    <Text style={[styles.alertText, { color: themeColors.text }]}>
+                      {[alertaPolitica, alertaLocal].filter(Boolean).join('\n')}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <CustomInput
                 label="Monto ($ MXN) *"
                 placeholder="0.00"
@@ -555,6 +739,41 @@ export default function GastoForm() {
                 onChangeText={setSucursal}
                 iconName="location-outline"
               />
+
+              {/* Selector de Estado de la República */}
+              <View style={styles.customDropdownContainer}>
+                <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Estado de la República *</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                  onPress={() => {
+                    setShowEstDropdown(!showEstDropdown);
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={{ color: selectedEstado ? themeColors.text : themeColors.textSecondary }}>
+                    {selectedEstado || 'Selecciona un Estado'}
+                  </Text>
+                  <Ionicons name={showEstDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                </TouchableOpacity>
+                {showEstDropdown && (
+                  <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                      {ESTADOS_MEXICO.map((est) => (
+                        <TouchableOpacity
+                          key={est}
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            setSelectedEstado(est);
+                            setShowEstDropdown(false);
+                          }}
+                        >
+                          <Text style={{ color: themeColors.text }}>{est}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
 
               {/* Selector de Método de Pago */}
               <View style={styles.selectorGroup}>
@@ -660,6 +879,18 @@ export default function GastoForm() {
                 3. Categorización e Información de Negocio
               </Text>
 
+              {(alertaPolitica || alertaLocal) && (
+                <View style={[styles.alertBanner, { backgroundColor: themeColors.danger + '15', borderColor: themeColors.danger }]}>
+                  <Ionicons name="warning-outline" size={22} color={themeColors.danger} style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.alertTitle, { color: themeColors.danger }]}>Alerta de Políticas de Gasto</Text>
+                    <Text style={[styles.alertText, { color: themeColors.text }]}>
+                      {[alertaPolitica, alertaLocal].filter(Boolean).join('\n')}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               {/* Selector de Categorías */}
               <View style={styles.customDropdownContainer}>
                 <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría *</Text>
@@ -667,8 +898,9 @@ export default function GastoForm() {
                   style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
                   onPress={() => {
                     setShowCatDropdown(!showCatDropdown);
-                    setShowSubDropdown(false);
-                    setShowCliDropdown(false);
+                  setShowSubDropdown(false);
+                  setShowCliDropdown(false);
+                  setShowEstDropdown(false);
                   }}
                 >
                   <Text style={{ color: selectedCategoria ? themeColors.text : themeColors.textSecondary }}>
@@ -707,6 +939,7 @@ export default function GastoForm() {
                       setShowSubDropdown(!showSubDropdown);
                       setShowCatDropdown(false);
                       setShowCliDropdown(false);
+                      setShowEstDropdown(false);
                     }}
                   >
                     <Text style={{ color: selectedSubcategoria ? themeColors.text : themeColors.textSecondary }}>
@@ -750,6 +983,7 @@ export default function GastoForm() {
                     setShowCliDropdown(!showCliDropdown);
                     setShowCatDropdown(false);
                     setShowSubDropdown(false);
+                    setShowEstDropdown(false);
                   }}
                 >
                   <Text style={{ color: selectedCliente ? themeColors.text : themeColors.textSecondary }}>
@@ -987,5 +1221,24 @@ const styles = StyleSheet.create({
     padding: Spacing.two,
     borderBottomWidth: 0.5,
     borderBottomColor: '#eee',
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+    marginBottom: Spacing.one,
+  },
+  alertTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  alertText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
   },
 });

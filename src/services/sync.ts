@@ -20,6 +20,7 @@ export interface OfflineGastoItem {
   sucursal?: string | null;
   tipo_tarjeta?: string | null;
   ubicacion_registro?: string | null;
+  estado?: string | null;
   created_at: string;
 }
 
@@ -30,25 +31,31 @@ for (let i = 0; i < chars.length; i++) {
   lookup[chars.charCodeAt(i)] = i;
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  let bufferLength = base64.length * 0.75;
-  const len = base64.length;
+export function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  // 1. Limpiar cualquier cabecera de Data URL
+  let cleanBase64 = base64.replace(/^data:image\/[a-z]+;base64,/, '');
+
+  // 2. Limpiar espacios en blanco, saltos de línea o caracteres no válidos de base64
+  cleanBase64 = cleanBase64.replace(/[^A-Za-z0-9+/=]/g, '');
+
+  let bufferLength = cleanBase64.length * 0.75;
+  const len = cleanBase64.length;
   let p = 0;
   let encoded1, encoded2, encoded3, encoded4;
 
-  if (base64[base64.length - 1] === '=') {
+  if (cleanBase64[cleanBase64.length - 1] === '=') {
     bufferLength--;
-    if (base64[base64.length - 2] === '=') bufferLength--;
+    if (cleanBase64[cleanBase64.length - 2] === '=') bufferLength--;
   }
 
   const arrayBuffer = new ArrayBuffer(bufferLength);
   const bytes = new Uint8Array(arrayBuffer);
 
   for (let i = 0; i < len; i += 4) {
-    encoded1 = lookup[base64.charCodeAt(i)];
-    encoded2 = lookup[base64.charCodeAt(i + 1)];
-    encoded3 = lookup[base64.charCodeAt(i + 2)];
-    encoded4 = lookup[base64.charCodeAt(i + 3)];
+    encoded1 = lookup[cleanBase64.charCodeAt(i)];
+    encoded2 = lookup[cleanBase64.charCodeAt(i + 1)];
+    encoded3 = lookup[cleanBase64.charCodeAt(i + 2)];
+    encoded4 = lookup[cleanBase64.charCodeAt(i + 3)];
 
     bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
     if (p < bufferLength) {
@@ -61,6 +68,8 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
   return arrayBuffer;
 }
+
+let isSyncingInProgress = false;
 
 export const SyncService = {
   /**
@@ -93,77 +102,92 @@ export const SyncService = {
    * Retorna la cantidad de gastos sincronizados exitosamente
    */
   async syncPendingGastos(): Promise<number> {
+    if (isSyncingInProgress) {
+      console.log('Sincronización ya está en curso. Omitiendo ejecución duplicada.');
+      return 0;
+    }
+
     const isConnected = (await NetInfo.fetch()).isConnected;
     if (!isConnected) return 0;
 
-    const queueStr = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    if (!queueStr) return 0;
-
-    const queue: OfflineGastoItem[] = JSON.parse(queueStr);
-    if (queue.length === 0) return 0;
-
-    const remainingQueue: OfflineGastoItem[] = [];
+    isSyncingInProgress = true;
     let syncedCount = 0;
 
-    for (const item of queue) {
-      try {
-        let publicUrl = '';
+    try {
+      const queueStr = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      if (!queueStr) return 0;
 
-        // 1. Subir foto a Supabase Storage si existe
-        if (item.base64Foto) {
-          const fileName = `${item.empleado_id}/${Date.now()}.jpg`;
-          const arrayBuffer = base64ToArrayBuffer(item.base64Foto);
+      const queue: OfflineGastoItem[] = JSON.parse(queueStr);
+      if (queue.length === 0) return 0;
 
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('tickets')
-            .upload(fileName, arrayBuffer, {
-              contentType: 'image/jpeg',
-              upsert: true,
-            });
+      const remainingQueue: OfflineGastoItem[] = [];
 
-          if (uploadError) {
-            throw new Error(`Storage upload error: ${uploadError.message}`);
+      for (const item of queue) {
+        try {
+          let publicUrl = '';
+
+          // 1. Subir foto a Supabase Storage si existe
+          if (item.base64Foto) {
+            const fileName = `${item.empleado_id}/${Date.now()}.jpg`;
+            const arrayBuffer = base64ToArrayBuffer(item.base64Foto);
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('tickets')
+              .upload(fileName, arrayBuffer, {
+                contentType: 'image/jpeg',
+                upsert: true,
+              });
+
+            if (uploadError) {
+              throw new Error(`Storage upload error: ${uploadError.message}`);
+            }
+
+            const { data: urlData } = supabase.storage.from('tickets').getPublicUrl(fileName);
+            publicUrl = urlData.publicUrl;
           }
 
-          const { data: urlData } = supabase.storage.from('tickets').getPublicUrl(fileName);
-          publicUrl = urlData.publicUrl;
+          // 2. Insertar registro en Supabase Gastos Table
+          const { error: dbError } = await supabase.from('gastos').insert([
+            {
+              empleado_id: item.empleado_id,
+              empleado_nombre: item.empleado_nombre,
+              monto: item.monto,
+              categoria: item.categoria,
+              subcategoria: item.subcategoria,
+              metodo_pago: item.metodo_pago,
+              justificacion: item.justificacion,
+              foto_url: publicUrl || null,
+              status: 'PENDING',
+              fecha_comprobante: item.fecha_comprobante || new Date().toISOString().split('T')[0],
+              proveedor: item.proveedor || null,
+              cliente: item.cliente || null,
+              sucursal: item.sucursal || null,
+              tipo_tarjeta: item.tipo_tarjeta || null,
+              ubicacion_registro: item.ubicacion_registro || 'Móvil (Offline Sync)',
+              estado: item.estado || null,
+              created_at: item.created_at,
+            },
+          ]);
+
+          if (dbError) {
+            throw new Error(`Database insert error: ${dbError.message}`);
+          }
+
+          syncedCount++;
+        } catch (err) {
+          console.error('Failed to sync offline item:', item.id, err);
+          // Volver a encolar los elementos fallidos para reintentar después
+          remainingQueue.push(item);
         }
-
-        // 2. Insertar registro en Supabase Gastos Table
-        const { error: dbError } = await supabase.from('gastos').insert([
-          {
-            empleado_id: item.empleado_id,
-            empleado_nombre: item.empleado_nombre,
-            monto: item.monto,
-            categoria: item.categoria,
-            subcategoria: item.subcategoria,
-            metodo_pago: item.metodo_pago,
-            justificacion: item.justificacion,
-            foto_url: publicUrl || null,
-            status: 'PENDING',
-            fecha_comprobante: item.fecha_comprobante || new Date().toISOString().split('T')[0],
-            proveedor: item.proveedor || null,
-            cliente: item.cliente || null,
-            sucursal: item.sucursal || null,
-            tipo_tarjeta: item.tipo_tarjeta || null,
-            ubicacion_registro: item.ubicacion_registro || 'Móvil (Offline Sync)',
-            created_at: item.created_at,
-          },
-        ]);
-
-        if (dbError) {
-          throw new Error(`Database insert error: ${dbError.message}`);
-        }
-
-        syncedCount++;
-      } catch (err) {
-        console.error('Failed to sync offline item:', item.id, err);
-        // Volver a encolar los elementos fallidos para reintentar después
-        remainingQueue.push(item);
       }
+
+      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remainingQueue));
+    } catch (err) {
+      console.error('Error general en syncPendingGastos:', err);
+    } finally {
+      isSyncingInProgress = false;
     }
 
-    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remainingQueue));
     return syncedCount;
   },
 

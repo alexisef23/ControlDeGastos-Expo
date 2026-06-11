@@ -29,6 +29,7 @@ export default function RootLayout() {
         <Stack.Screen name="(empleado)/formulario" />
         <Stack.Screen name="(admin)/dashboard" />
         <Stack.Screen name="(admin)/catalogos" />
+        <Stack.Screen name="(admin)/evidencias" />
       </Stack>
     </ThemeProvider>
   );

@@ -18,6 +18,7 @@ interface CustomButtonProps {
   disabled?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  icon?: React.ReactNode;
 }
 
 export default function CustomButton({
@@ -28,6 +29,7 @@ export default function CustomButton({
   disabled = false,
   style,
   textStyle,
+  icon,
 }: CustomButtonProps) {
   const scheme = useColorScheme();
   const themeColors = Colors[scheme === 'dark' ? 'dark' : 'light'];
@@ -72,7 +74,10 @@ export default function CustomButton({
       {loading ? (
         <ActivityIndicator color={textColor} size="small" />
       ) : (
-        <Text style={[styles.text, { color: textColor }, textStyle]}>{title}</Text>
+        <>
+          {icon}
+          <Text style={[styles.text, { color: textColor }, textStyle]}>{title}</Text>
+        </>
       )}
     </TouchableOpacity>
   );

@@ -1,16 +1,19 @@
-# Documentación Técnica y Funcional: PWA Control de Gastos INTTEC
+# Documentación Técnica y Funcional: App Control de Gastos y Evidencias INTTEC
 
-Este documento contiene la arquitectura, flujos de trabajo (workflows), estructura de datos y lógica de la Aplicación Web Progresiva (PWA) de Control de Gastos. Está diseñado para proporcionar un **contexto completo** a cualquier modelo de Inteligencia Artificial o equipo de desarrollo que vaya a trabajar, mantener o escalar el proyecto.
+Este documento contiene la arquitectura, flujos de trabajo (workflows), estructura de datos y lógica de la aplicación móvil de **Control de Gastos y Evidencias Técnicas**. Está diseñado para proporcionar un **contexto completo** a cualquier modelo de Inteligencia Artificial o equipo de desarrollo que vaya a trabajar, mantener o escalar el proyecto.
 
 ---
 
 ## 1. Stack Tecnológico
-- **Frontend**: React 18 + TypeScript + Vite.
-- **Diseño UI**: Material UI (MUI) configurado con el tema visual corporativo de INTTEC (Azul Oscuro, botones vibrantes, bordes redondeados), clon 1:1 de la app de Android Jetpack Compose.
-- **Backend / Base de Datos / Storage**: Supabase (PostgreSQL).
-- **Offline / Caching**: IndexedDB (`idb`) para soporte offline y Service Workers para la PWA.
-- **Generación de Reportes**: `jspdf` y `jspdf-autotable` para PDF. Formato nativo para CSV.
-- **Inteligencia Artificial**: Google Gemini 3.5 Flash (vía REST API `fetch`) para escaneo de tickets (OCR).
+- **Core / Plataforma**: React Native + Expo (SDK 56) + TypeScript.
+- **Enrutamiento y Navegación**: `expo-router` (enrutamiento basado en archivos con navegación Stack en `src/app/_layout.tsx`).
+- **Diseño UI**: Hojas de estilo nativas de React Native (`StyleSheet`) configuradas con el sistema de diseño corporativo en `src/constants/theme.ts` (Soporte nativo para modo claro y oscuro, HSL tailored colors, bordes redondeados y micro-animaciones).
+- **Backend / Base de Datos / Storage**: Supabase (PostgreSQL y Supabase Storage para almacenamiento de fotografías).
+- **Offline / Sincronización**: `AsyncStorage` local para la cola de sincronización de gastos offline y `NetInfo` (`@react-native-community/netinfo`) en `src/services/sync.ts` para detectar la conexión a internet de forma reactiva.
+- **Generación de Reportes**: `expo-print` (conversión de plantillas HTML a PDF con incrustación de logotipos y fotos en Base64/URLs) y `expo-sharing` para compartir los documentos nativamente.
+- **Inteligencia Artificial**: Google Gemini 3.5 Flash (vía REST API en `src/services/gemini.ts`) utilizado para:
+  1. **OCR / Escáner de Tickets**: Lee y autocompleta el formulario de gastos a partir de la foto del comprobante.
+  2. **Análisis Técnico de Evidencias**: Analiza fotos de un servicio (antes y después) para redactar un reporte técnico estructurado y formal de la intervención.
 
 ---
 
@@ -18,57 +21,65 @@ Este documento contiene la arquitectura, flujos de trabajo (workflows), estructu
 
 La aplicación interactúa principalmente con las siguientes tablas:
 
-- **`usuarios`**: Almacena las credenciales y el nivel de acceso.
-  - Campos: `id` (uuid), `nombre`, `email`, `password`, `rol` (`'ADMIN'`, `'EMPLEADO'`), `telefono`, `created_at`.
-- **`gastos`**: El núcleo de la aplicación.
-  - Campos: `id`, `empleado_id` (FK a usuarios), `empleado_nombre`, `monto`, `categoria`, `subcategoria`, `cliente`, `proveedor`, `sucursal`, `metodo_pago` (Restricción CHECK: `efectivo`, `tarjeta`, `tarjeta_credito`, `tarjeta_debito`), `tipo_tarjeta`, `justificacion`, `foto_url`, `status` (`PENDING`, `APPROVED`, `REJECTED`, `ACTION_REQUIRED`), `rejection_feedback`, `created_at`, `approved_at`, `fecha_comprobante`.
+- **`usuarios`**: Almacena las credenciales de ingreso y el rol de acceso.
+  - Campos: `id` (uuid, PK), `nombre`, `email`, `password`, `rol` (`'ADMIN'`, `'EMPLEADO'`), `telefono`, `created_at`.
+- **`gastos`**: Registro de reembolsos y compras.
+  - Campos: `id` (uuid, PK), `empleado_id` (FK a usuarios), `empleado_nombre`, `monto` (numeric), `categoria`, `subcategoria`, `cliente`, `proveedor`, `sucursal`, `metodo_pago` (Restricción CHECK: `efectivo`, `tarjeta`, `tarjeta_credito`, `tarjeta_debito`), `tipo_tarjeta`, `justificacion` (incluye logs de alertas IA), `foto_url`, `status` (`PENDING`, `APPROVED`, `REJECTED`, `ACTION_REQUIRED`), `rejection_feedback`, `created_at`, `approved_at`, `fecha_comprobante`, `proveedor`, `cliente`, `sucursal`, `tipo_tarjeta`, `ubicacion_registro`, `estado`.
+- **`evidencias`**: Registro histórico de actividades y reportes técnicos de trabajo.
+  - Campos: `id` (uuid, PK), `empleado_id` (FK a usuarios), `empleado_nombre`, `cliente` (text), `descripcion_trabajo` (text), `materiales_usados` (text, opcional), `observaciones` (text, opcional), `foto_antes_url` (text, opcional), `foto_despues_url` (text, opcional), `resumen_ia` (text, reporte técnico IA), `created_at`.
 - **Catálogos (`clientes`, `categorias`, `subcategorias`)**:
-  - Tablas independientes para popular selectores. `subcategorias` depende directamente de `categorias` mediante `categoria_id`.
+  - Tablas independientes para poblar selectores. `subcategorias` depende directamente de `categorias` mediante `categoria_id`.
 
 ---
 
 ## 3. Flujos de Pantalla y Navegación
 
-### A. Autenticación (`/src/pages/Login/index.tsx`)
-1. Verifica si existe un objeto `user` en `localStorage`. Si existe, salta el login automáticamente y redirige según el rol.
-2. Si no, solicita email y contraseña.
-3. Tras la validación, redirige a `/dashboard` (Empleado) o `/admin-dashboard` (Admin).
+### A. Autenticación (`src/app/index.tsx`)
+1. Verifica si existe un objeto `logged_user` en el almacenamiento persistente (`AsyncStorage`). Si existe, redirige automáticamente según el rol del usuario.
+2. Si no, solicita email y contraseña para validar contra la tabla `usuarios` en Supabase.
+3. Tras la validación, redirige a `(empleado)/dashboard` o `(admin)/dashboard`.
 
-### B. Dashboard del Empleado (`/src/pages/Dashboard/index.tsx`)
-- **Pestaña Pendientes**: Muestra gastos en estado `PENDING`, `SYNC_PENDING` (guardados offline) y `ACTION_REQUIRED` (devueltos).
-- **Pestaña Historial**: Muestra gastos `APPROVED` y `REJECTED`.
-- **Cards de Resumen**: Calculan en tiempo real el saldo pendiente y el total aprobado.
-- Al dar clic en un gasto, se abre un *Modal de solo lectura* con los detalles de compra y la foto del ticket.
+### B. Módulo de Empleado
+- **Dashboard (`src/app/(empleado)/dashboard.tsx`)**:
+  - Visualiza el balance de gastos aprobados y pendientes en MXN.
+  - Pestaña **Pendientes**: Muestra gastos `PENDING`, `ACTION_REQUIRED` y gastos offline pendientes de subida (`SYNC_PENDING`).
+  - Pestaña **Historial**: Muestra gastos `APPROVED` y `REJECTED`.
+  - Botones flotantes (FAB) para registrar un nuevo gasto (`/formulario`) o reportar evidencias (`/evidencia`).
+  - Botón de maletín en la cabecera para abrir **Mi Trabajo** (`/trabajo`).
+- **Registrar Evidencia (`src/app/(empleado)/evidencia.tsx`)**:
+  - Formulario en 3 pasos: Carga de fotos (antes/después), información textual del servicio (cliente, trabajo, materiales) y generación del reporte con IA.
+- **Historial de Trabajo - "Mi Trabajo" (`src/app/(empleado)/trabajo.tsx`)**:
+  - Lista de reportes de servicio hechos por el empleado. Permite filtrado por cliente, ver detalles completos, imágenes remotas, y volver a compartir el PDF.
 
-### C. Dashboard del Administrador (`/src/pages/AdminDashboard/index.tsx`)
-Mismas pestañas que el empleado, más una pestaña extra:
-- **Personal**: Lista de usuarios registrados. Permite agregar nuevos empleados/administradores (guarda en la tabla `usuarios`).
-- **Exportación**: Botón global para descargar el historial completo de gastos en `CSV` y `PDF`.
-- **Menú Configuración**: Acceso a la página de Catálogos.
-- **Gestión de Gasto (Modal)**: A diferencia del empleado, el modal del Admin permite 3 acciones principales: Aprobar, Devolver o Rechazar.
+### C. Módulo de Administrador
+- **Dashboard (`src/app/(admin)/dashboard.tsx`)**:
+  - Muestra montos globales pendientes y aprobados en la organización.
+  - Pestañas de revisión de gastos: **Revisar** (gastos pendientes con alertas visuales de política IA) e **Historial**.
+  - Acciones rápidas (Botones):
+    - **Personal**: Modal para agregar, editar y eliminar usuarios/roles.
+    - **Reportes**: Modal para exportar el reporte global de gastos en CSV o PDF.
+    - **Evidencias**: Redirige al historial de reportes de trabajo de los empleados.
+    - **Catálogos**: Redirige al administrador de categorías, subcategorías y clientes.
+- **Catálogos (`src/app/(admin)/catalogos.tsx`)**:
+  - Panel para agregar nuevos clientes, categorías principales y subcategorías vinculadas.
+- **Historial General de Evidencias (`src/app/(admin)/evidencias.tsx`)**:
+  - Panel independiente para visualizar el historial técnico global.
+  - Filtro horizontal deslizable de empleados para revisar reportes de técnicos específicos.
+  - Buscador de clientes y visor de detalles completos con fotos y descarga de PDF.
 
 ---
 
 ## 4. Workflows Críticos
 
-### 4.1. Flujo de Creación de Gasto (GastoForm)
-Dividido en 3 pasos secuenciales (`/src/pages/GastoForm/index.tsx`):
+### 4.1. Flujo de Creación de Gasto y Soporte Offline
+1. El empleado toma foto del ticket de compra y puede presionar **"ESCANEAR CON IA"**.
+2. Gemini extrae los datos y autocompleta el formulario.
+3. **Guardado Offline First**:
+   - Si no hay red (`!NetInfo.isConnected`), el registro y la foto (Base64) se guardan localmente mediante la cola de sincronización de `SyncService`.
+   - Si hay red, se sube la foto a Supabase Storage (`tickets/`), se obtiene la URL pública y se inserta el registro en la tabla `gastos` con estado `PENDING`.
+   - Cuando se recupera conexión a internet, el Listener de Red sube de manera automática los registros pendientes.
 
-1. **Evidencia e IA**: 
-   - El usuario captura foto (cámara o galería). 
-   - Se convierte a `Base64`.
-   - Se puede usar **"ESCANEAR CON IA"**. Envía la imagen al API de Google Gemini solicitando un JSON puro (`{monto, proveedor, categoria}`). Si es exitoso, autocompleta el Paso 2.
-2. **Detalles Físicos**: 
-   - Fecha, Monto, Proveedor, Sucursal, Método de pago. 
-   - La app maneja internamente la lógica de formatear "Tarjeta" a `tarjeta` para cumplir con el `CHECK constraint` de Supabase.
-3. **Categorización**:
-   - Categoría, Subcategoría (filtrada automáticamente según la categoría seleccionada), Cliente y Justificación. 
-   - Estos listados son *Live-fetched* desde las tablas de Supabase al abrir el formulario.
-4. **Offline First**:
-   - Si no hay red (`!navigator.onLine`), guarda el objeto JSON y la foto Base64 en `IndexedDB` local y le pone status `SYNC_PENDING`.
-   - Si hay red, sube la foto a Supabase Storage `tickets/`, obtiene URL pública y guarda el registro SQL con status `PENDING`.
-
-### 4.2. Flujo Interactivo de Revisión (Aprobar/Devolver/Rechazar)
+### 4.2. Flujo de Revisión de Gastos (Devolución)
 
 ```mermaid
 sequenceDiagram
@@ -77,33 +88,29 @@ sequenceDiagram
     participant Admin
 
     Empleado->>Supabase: Crea Gasto (Status: PENDING)
-    Admin->>Supabase: Revisa Gasto
+    Admin->>Supabase: Revisa Gasto en Dashboard
     alt Admin Aprueba / Rechaza
         Admin->>Supabase: Status = APPROVED / REJECTED
     else Admin Devuelve
-        Admin->>Supabase: Ingresa Pregunta/Duda
-        Admin->>Supabase: Status = ACTION_REQUIRED, rejection_feedback = "Pregunta..."
-        Supabase-->>Empleado: Gasto reaparece como ACCIÓN REQUERIDA
-        Empleado->>Supabase: Lee Alerta de rejection_feedback
-        Empleado->>Supabase: Escribe respuesta y presiona "Reenviar"
-        Empleado->>Supabase: Status = PENDING, limpia feedback, concatena respuesta a justificacion.
+        Admin->>Supabase: Ingresa Comentario/Observación
+        Admin->>Supabase: Status = ACTION_REQUIRED, rejection_feedback = "Falta factura..."
+        Supabase-->>Empleado: Alerta visual de Acción Requerida en Dashboard
+        Empleado->>Supabase: Corrige formulario y añade respuesta
+        Empleado->>Supabase: Reenvía (Status = PENDING, concatena respuesta en justificación)
         Supabase-->>Admin: Gasto reaparece en lista de Pendientes para nueva revisión
     end
 ```
 
-### 4.3. Administrador de Catálogos (`/src/pages/CatalogosManager/index.tsx`)
-- Panel de control exclusivo para `ADMIN`.
-- Visualiza `clientes`, `categorias` y `subcategorias`.
-- Permite la Inserción SQL en tiempo real. 
-- Cuenta con un modal inteligente que, al añadir una subcategoría, despliega un menú para seleccionar el `id` de la categoría padre, mapeando correctamente la llave foránea (`categoria_id`).
+### 4.3. Flujo de Registro Técnico y Evidencias de Trabajo
+1. El técnico captura foto inicial (Antes) y foto final (Después).
+2. Rellena los detalles del servicio y los materiales utilizados.
+3. Presiona **"GENERAR REPORTE CON IA"**: Gemini analiza las fotos y los detalles para redactar un informe formal.
+4. Genera la cabecera oficial en PDF utilizando la imagen del icono de INTTEC codificada en Base64, garantizando renderizado instantáneo y sin fallos de lectura de archivos locales en la WebView de `expo-print`.
+5. Si decide **Guardar en el Servidor**: Sube las fotos al bucket `tickets/`, obtiene las URLs públicas y guarda el reporte técnico en la tabla `evidencias`.
 
 ---
 
-## 5. Directrices de Mantenimiento y Reglas Futuras
-1. **No alterar el `metodo_pago`**: Supabase tiene un Check Constraint riguroso. El componente manda `.toLowerCase()` para convertir "Tarjeta" en "tarjeta".
-2. **Offline-Sync**: Si se modifican los campos de la tabla `gastos`, también se debe modificar la estructura de objeto en `/src/db.ts` (IndexedDB) para que la posterior sincronización asíncrona suba los nuevos campos al recuperar conexión.
-3. **MUI vs Tailwind**: El proyecto utiliza **Material UI (MUI)**. Todo el styling se hace a través de la propiedad `sx={{}}`. Abstenerse de instalar/usar utilidades de TailwindCSS para evitar colisiones.
-4. **Variables de Entorno**: 
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-   - `VITE_GEMINI_API_KEY` (Obligatoria para la característica OCR / Escáner AI).
+## 5. Directrices de Desarrollo y Mantenimiento
+1. **Diferencia de Modelos en Gastos**: La restricción CHECK en Supabase obliga a enviar los métodos de pago en minúsculas (`efectivo`, `tarjeta`, `tarjeta_credito`, `tarjeta_debito`). No alterar estas conversiones en los formularios.
+2. **Generación de Reportes PDF**: La renderización de logotipos e imágenes en `expo-print` debe realizarse preferentemente mediante Base64 o URLs remotas públicas directas. No intentar referenciar recursos de la carpeta local de assets (`../../assets/...`) usando URIs relativas en las plantillas HTML, ya que fallará al compilarse en los emuladores o dispositivos físicos por seguridad de la WebView.
+3. **Unicidad de Iconos y Componentes**: El diseño utiliza el tema visual global y los iconos nativos de `Ionicons` de Expo Router. Mantener siempre la coherencia del esquema de colores (Modo Oscuro/Claro).

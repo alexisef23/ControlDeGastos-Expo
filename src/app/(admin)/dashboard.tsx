@@ -320,6 +320,18 @@ export default function AdminDashboard() {
     return dateStr;
   };
 
+  const parseJustificacion = (just: string | null | undefined) => {
+    if (!just) return { alerta: null, justificacion: '' };
+    const match = just.match(/^\[ALERTA IA:\s*([\s\S]*?)\]\s*\n\s*([\s\S]*)$/);
+    if (match) {
+      return {
+        alerta: match[1],
+        justificacion: match[2],
+      };
+    }
+    return { alerta: null, justificacion: just };
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
@@ -374,6 +386,16 @@ export default function AdminDashboard() {
             <Ionicons name="document-text-sharp" size={18} color={themeColors.success} />
           </View>
           <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Reportes</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push('/(admin)/evidencias')}
+          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+        >
+          <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.actionRequired + '15' }]}>
+            <Ionicons name="briefcase-sharp" size={18} color={themeColors.actionRequired} />
+          </View>
+          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Evidencias</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -660,13 +682,30 @@ export default function AdminDashboard() {
                     </Text>
                   </View>
 
-                  <View style={styles.detailItem}>
-                    <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Pago / Justificación</Text>
-                    <Text style={[styles.detailValue, { color: themeColors.text }]}>
-                      Método: {selectedGasto.metodo_pago} {selectedGasto.tipo_tarjeta ? `(${selectedGasto.tipo_tarjeta})` : ''}
-                      {'\n'}Justificación: {selectedGasto.justificacion || 'No especificada'}
-                    </Text>
-                  </View>
+                  {/* Parsear justificación para ver si hay alerta de IA */}
+                  {(() => {
+                    const parsed = parseJustificacion(selectedGasto.justificacion);
+                    return (
+                      <>
+                        {parsed.alerta && (
+                          <View style={[styles.alertBanner, { backgroundColor: themeColors.danger + '15', borderColor: themeColors.danger, marginBottom: Spacing.two }]}>
+                            <Ionicons name="warning-outline" size={22} color={themeColors.danger} style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.alertTitle, { color: themeColors.danger }]}>Alerta de Políticas de Gasto</Text>
+                              <Text style={[styles.alertText, { color: themeColors.text }]}>{parsed.alerta}</Text>
+                            </View>
+                          </View>
+                        )}
+                        <View style={styles.detailItem}>
+                          <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Pago / Justificación</Text>
+                          <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                            Método: {selectedGasto.metodo_pago} {selectedGasto.tipo_tarjeta ? `(${selectedGasto.tipo_tarjeta})` : ''}
+                            {'\n'}Justificación: {parsed.justificacion || 'No especificada'}
+                          </Text>
+                        </View>
+                      </>
+                    );
+                  })()}
 
                   {/* Acciones para gastos PENDIENTES */}
                   {selectedGasto.status === 'PENDING' && (
@@ -1118,8 +1157,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   exportBtn: {
-    width: 70,
+    width: 85,
     height: 40,
+    paddingHorizontal: Spacing.one,
   },
   modalOverlay: {
     flex: 1,
@@ -1261,5 +1301,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+    marginBottom: Spacing.one,
+  },
+  alertTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  alertText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
   },
 });

@@ -30,6 +30,7 @@ CREATE TABLE public.gastos (
   sucursal text,
   tipo_tarjeta character varying,
   ubicacion_registro character varying,
+  estado text,
   CONSTRAINT gastos_pkey PRIMARY KEY (id),
   CONSTRAINT gastos_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
 );
@@ -68,4 +69,19 @@ CREATE TABLE public.subcategorias (
   nombre text NOT NULL,
   CONSTRAINT subcategorias_pkey PRIMARY KEY (id),
   CONSTRAINT subcat_cat_fkey FOREIGN KEY (categoria_id) REFERENCES public.categorias(id)
+);
+CREATE TABLE public.evidencias (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  empleado_id uuid NOT NULL,
+  empleado_nombre text,
+  cliente text NOT NULL,
+  descripcion_trabajo text NOT NULL,
+  materiales_usados text,
+  observaciones text,
+  foto_antes_url text,
+  foto_despues_url text,
+  resumen_ia text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT evidencias_pkey PRIMARY KEY (id),
+  CONSTRAINT evidencias_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
 );

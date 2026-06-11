@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   useColorScheme,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
@@ -110,8 +111,12 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <View style={[styles.logoContainer, { backgroundColor: themeColors.backgroundElement }]}>
-            <Ionicons name="wallet-sharp" size={40} color={themeColors.accent} />
+          <View style={[styles.logoContainer, { backgroundColor: '#ffffff' }]}>
+            <Image
+              source={require('@/assets/images/logo.jpeg')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
           <Text style={[styles.title, { color: themeColors.text }]}>INTTEC</Text>
           <Text style={[styles.subtitle, { color: themeColors.textSecondary }]}>
@@ -201,6 +206,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 3,
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   title: {
     fontSize: 32,

@@ -1,7 +1,36 @@
-import { documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Gasto } from '../services/supabase';
+import { LOGO_BASE64 } from './logoBase64';
+
+/**
+ * Detecta si un gasto tiene alguna alerta de política (como alcohol, tabaco o montos sospechosos)
+ */
+const hasPolicyAlert = (g: Gasto): { alert: boolean; reason: string } => {
+  const just = g.justificacion || '';
+  
+  // 1. Detectar si el formulario guardó una alerta estructurada de la IA
+  const match = just.match(/^\[ALERTA IA:\s*([\s\S]*?)\]/);
+  if (match) {
+    return { alert: true, reason: match[1].trim() };
+  }
+  
+  // 2. Búsqueda complementaria de palabras clave en la justificación, categoría, subcategoría o proveedor
+  const textToSearch = `${just} ${g.categoria || ''} ${g.subcategoria || ''} ${g.proveedor || ''}`.toLowerCase();
+  
+  if (textToSearch.includes('alcohol') || textToSearch.includes('cerveza') || textToSearch.includes('vino') || textToSearch.includes('licor') || textToSearch.includes('bebida alcohólica')) {
+    return { alert: true, reason: 'Posible compra de alcohol' };
+  }
+  if (textToSearch.includes('cigarro') || textToSearch.includes('cigarrillo') || textToSearch.includes('tabaco') || textToSearch.includes('cajetilla')) {
+    return { alert: true, reason: 'Posible compra de tabaco' };
+  }
+  if (textToSearch.includes('excesivo') || textToSearch.includes('exceso') || textToSearch.includes('inflado')) {
+    return { alert: true, reason: 'Monto sospechoso o propina excesiva' };
+  }
+  
+  return { alert: false, reason: '' };
+};
 
 export const ReportGenerator = {
   /**
@@ -30,12 +59,24 @@ export const ReportGenerator = {
       if (g.status === 'REJECTED') badgeColor = '#F44336';
       if (g.status === 'ACTION_REQUIRED') badgeColor = '#2196F3';
 
+      const { alert, reason } = hasPolicyAlert(g);
+      let rowStyle = '';
+      let alertLabel = '';
+      if (alert) {
+        // Fondo rojo suave y texto rojo oscuro para resaltar alertas
+        rowStyle = `style="background-color: #ffebee; color: #b71c1c;"`;
+        alertLabel = `<div style="color: #b71c1c; font-size: 8px; font-weight: bold; margin-top: 4px;">⚠️ ALERTA: ${reason}</div>`;
+      }
+
       tableRows += `
-        <tr>
+        <tr ${rowStyle}>
           <td>${fecha}</td>
           <td>${g.empleado_nombre || 'Desconocido'}</td>
           <td>${g.proveedor || 'N/A'}</td>
-          <td>${g.categoria || 'N/A'} - ${g.subcategoria || ''}</td>
+          <td>
+            ${g.categoria || 'N/A'} - ${g.subcategoria || ''}
+            ${alertLabel}
+          </td>
           <td>${g.metodo_pago}</td>
           <td><span class="status-badge" style="background-color: ${badgeColor};">${g.status}</span></td>
           <td style="text-align: right; font-weight: bold;">${montoFormatted}</td>
@@ -63,6 +104,39 @@ export const ReportGenerator = {
             border-bottom: 3px solid #0d1b2a;
             padding-bottom: 15px;
             margin-bottom: 20px;
+          }
+          .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .logo-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+          }
+          .logo-brand {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 900;
+            font-style: italic;
+            font-size: 22px;
+            color: #0d1b2a;
+            line-height: 1;
+            letter-spacing: 0.5px;
+          }
+          .logo-tagline {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 700;
+            font-size: 7px;
+            color: #777;
+            letter-spacing: 0.8px;
+            margin-top: 2px;
+            text-transform: uppercase;
+          }
+          .logo-img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
           }
           .title {
             color: #0d1b2a;
@@ -144,7 +218,13 @@ export const ReportGenerator = {
             <h1 class="title">${title}</h1>
             <p class="subtitle">Generado el: ${new Date().toLocaleString()}</p>
           </div>
-          <div style="font-weight: bold; color: #1b4965; font-size: 18px;">INTTEC</div>
+          <div class="logo-container">
+            <div class="logo-text">
+              <span class="logo-brand">INTTEC</span>
+              <span class="logo-tagline">INTEGRACIÓN DE TECNOLOGÍAS</span>
+            </div>
+            <img class="logo-img" src="${LOGO_BASE64}" />
+          </div>
         </div>
 
         <div class="summary-grid">
@@ -194,12 +274,21 @@ export const ReportGenerator = {
     `;
 
     try {
-      // Generar archivo PDF temporal
-      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      // Generar archivo PDF temporal y obtener su base64 para evitar bloqueos del sistema de archivos en Android
+      const { base64 } = await Print.printToFileAsync({ html: htmlContent, base64: true });
       
+      // Para evitar el error "Not allowed to read file under given URL" y "isn't readable" en Android,
+      // guardamos el PDF a partir de su contenido Base64 directamente en cacheDirectory.
+      const pdfFileName = `reporte_gastos_${Date.now()}.pdf`;
+      const safeUri = `${cacheDirectory}${pdfFileName}`;
+      
+      await writeAsStringAsync(safeUri, base64 || '', {
+        encoding: EncodingType.Base64,
+      });
+
       // Compartir nativamente
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
+        await Sharing.shareAsync(safeUri, {
           mimeType: 'application/pdf',
           dialogTitle: 'Exportar Reporte PDF',
           UTI: 'com.adobe.pdf',
@@ -223,7 +312,7 @@ export const ReportGenerator = {
 
     // Encabezados
     let csvContent = '\uFEFF'; // BOM para que Excel abra UTF-8 correctamente
-    csvContent += 'ID,Fecha,Empleado Nombre,Monto,Categoria,Subcategoria,Proveedor,Cliente,Sucursal,Metodo Pago,Tipo Tarjeta,Status,Justificacion\n';
+    csvContent += 'ID,Fecha,Empleado Nombre,Monto,Categoria,Subcategoria,Proveedor,Cliente,Sucursal,Metodo Pago,Tipo Tarjeta,Status,Alerta Politica\n';
 
     // Rellenar filas
     gastos.forEach((g) => {
@@ -233,6 +322,8 @@ export const ReportGenerator = {
         const cleaned = text.replace(/"/g, '""');
         return `"${cleaned}"`;
       };
+
+      const { alert, reason } = hasPolicyAlert(g);
 
       const row = [
         g.id,
@@ -247,15 +338,15 @@ export const ReportGenerator = {
         g.metodo_pago,
         escape(g.tipo_tarjeta),
         g.status,
-        escape(g.justificacion),
+        alert ? escape(`ALERTA: ${reason}`) : '',
       ].join(',');
 
       csvContent += row + '\n';
     });
 
     try {
-      // Guardar el archivo en el sistema de archivos local de Expo
-      const fileUri = `${documentDirectory}${fileName}`;
+      // Guardar el archivo en el sistema de archivos local de Expo (en cacheDirectory para compartir de forma segura)
+      const fileUri = `${cacheDirectory}${fileName}`;
       await writeAsStringAsync(fileUri, csvContent, {
         encoding: EncodingType.UTF8,
       });

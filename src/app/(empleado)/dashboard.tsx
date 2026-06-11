@@ -181,6 +181,18 @@ export default function EmpleadoDashboard() {
     return dateStr;
   };
 
+  const parseJustificacion = (just: string | null | undefined) => {
+    if (!just) return { alerta: null, justificacion: '' };
+    const match = just.match(/^\[ALERTA IA:\s*([\s\S]*?)\]\s*\n\s*([\s\S]*)$/);
+    if (match) {
+      return {
+        alerta: match[1],
+        justificacion: match[2],
+      };
+    }
+    return { alerta: null, justificacion: just };
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
@@ -205,6 +217,12 @@ export default function EmpleadoDashboard() {
               )}
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            onPress={() => router.push('/(empleado)/trabajo')}
+            style={[styles.headerIconBtn, { backgroundColor: themeColors.backgroundElement }]}
+          >
+            <Ionicons name="briefcase-outline" size={20} color={themeColors.accent} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={handleLogout}
             style={[styles.headerIconBtn, { backgroundColor: themeColors.backgroundElement }]}
@@ -297,14 +315,26 @@ export default function EmpleadoDashboard() {
         />
       )}
 
-      {/* Floating Action Button (FAB) */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => router.push('/(empleado)/formulario')}
-        style={[styles.fab, { backgroundColor: themeColors.accent }]}
-      >
-        <Ionicons name="add" size={28} color="#ffffff" />
-      </TouchableOpacity>
+      {/* Floating Action Buttons */}
+      <View style={styles.fabContainer}>
+        {/* Registrar Evidencia */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push('/(empleado)/evidencia')}
+          style={[styles.fabSecondary, { backgroundColor: themeColors.success }]}
+        >
+          <Ionicons name="camera" size={22} color="#ffffff" />
+        </TouchableOpacity>
+
+        {/* Registrar Gasto */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push('/(empleado)/formulario')}
+          style={[styles.fab, { backgroundColor: themeColors.accent }]}
+        >
+          <Ionicons name="receipt" size={24} color="#ffffff" />
+        </TouchableOpacity>
+      </View>
 
       {/* Modal de Detalle */}
       <Modal
@@ -384,12 +414,29 @@ export default function EmpleadoDashboard() {
                     </Text>
                   </View>
 
-                  <View style={styles.detailItem}>
-                    <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Justificación</Text>
-                    <Text style={[styles.detailValue, { color: themeColors.text }]}>
-                      {selectedGasto.justificacion || 'No especificada'}
-                    </Text>
-                  </View>
+                  {/* Parsear justificación para ver si hay alerta de IA */}
+                  {(() => {
+                    const parsed = parseJustificacion(selectedGasto.justificacion);
+                    return (
+                      <>
+                        {parsed.alerta && (
+                          <View style={[styles.alertBanner, { backgroundColor: themeColors.danger + '15', borderColor: themeColors.danger, marginBottom: Spacing.two }]}>
+                            <Ionicons name="warning-outline" size={22} color={themeColors.danger} style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.alertTitle, { color: themeColors.danger }]}>Alerta de Políticas de Gasto</Text>
+                              <Text style={[styles.alertText, { color: themeColors.text }]}>{parsed.alerta}</Text>
+                            </View>
+                          </View>
+                        )}
+                        <View style={styles.detailItem}>
+                          <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Justificación</Text>
+                          <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                            {parsed.justificacion || 'No especificada'}
+                          </Text>
+                        </View>
+                      </>
+                    );
+                  })()}
 
                   <View style={styles.detailItem}>
                     <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Sucursal / Cliente</Text>
@@ -533,13 +580,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
-  fab: {
+  fabContainer: {
     position: 'absolute',
     bottom: Spacing.four,
     right: Spacing.four,
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  fabSecondary: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -634,5 +697,24 @@ const styles = StyleSheet.create({
   responseForm: {
     marginTop: Spacing.one,
     gap: Spacing.one,
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+    marginBottom: Spacing.one,
+  },
+  alertTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  alertText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
   },
 });

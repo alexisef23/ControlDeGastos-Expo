@@ -46,6 +46,21 @@ export interface Gasto {
   sucursal?: string | null;
   tipo_tarjeta?: string | null;
   ubicacion_registro?: string | null;
+  estado?: string | null;
+}
+
+export interface Evidencia {
+  id: string;
+  empleado_id: string;
+  empleado_nombre?: string | null;
+  cliente: string;
+  descripcion_trabajo: string;
+  materiales_usados?: string | null;
+  observaciones?: string | null;
+  foto_antes_url?: string | null;
+  foto_despues_url?: string | null;
+  resumen_ia?: string | null;
+  created_at?: string;
 }
 
 export interface CatalogoItem {
