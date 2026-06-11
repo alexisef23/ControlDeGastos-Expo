@@ -525,7 +525,7 @@ export default function AdminDashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.userName, { color: themeColors.text }]}>{item.nombre}</Text>
                     <Text style={[styles.userEmail, { color: themeColors.textSecondary }]}>{item.email}</Text>
-                    {item.telefono && <Text style={[styles.userEmail, { color: themeColors.textSecondary }]}>{item.telefono}</Text>}
+                    {!!item.telefono && <Text style={[styles.userEmail, { color: themeColors.textSecondary }]}>{item.telefono}</Text>}
                   </View>
                   <View style={styles.userMetaActions}>
                     <View style={[styles.roleBadge, { backgroundColor: item.rol === 'ADMIN' ? themeColors.danger + '15' : themeColors.accent + '15' }]}>

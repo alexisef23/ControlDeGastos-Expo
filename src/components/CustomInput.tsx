@@ -34,7 +34,7 @@ export default function CustomInput({
 
   return (
     <View style={styles.container}>
-      {label && <Text style={[styles.label, { color: themeColors.text }]}>{label}</Text>}
+      {!!label && <Text style={[styles.label, { color: themeColors.text }]}>{label}</Text>}
       
       <View
         style={[
@@ -83,7 +83,7 @@ export default function CustomInput({
         )}
       </View>
 
-      {error && <Text style={[styles.errorText, { color: themeColors.danger }]}>{error}</Text>}
+      {!!error && <Text style={[styles.errorText, { color: themeColors.danger }]}>{error}</Text>}
     </View>
   );
 }
