@@ -80,6 +80,7 @@ CREATE TABLE public.evidencias (
   observaciones text,
   foto_antes_url text,
   foto_despues_url text,
+  fotos_adicionales_urls text[],
   resumen_ia text,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT evidencias_pkey PRIMARY KEY (id),
