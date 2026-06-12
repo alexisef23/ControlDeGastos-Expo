@@ -381,7 +381,29 @@ export const EvidenceReportGenerator = {
 
     try {
       if (Platform.OS === 'web') {
-        await Print.printAsync({ html: htmlContent });
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc) {
+          iframeDoc.open();
+          iframeDoc.write(htmlContent);
+          iframeDoc.close();
+
+          setTimeout(() => {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+            setTimeout(() => {
+              document.body.removeChild(iframe);
+            }, 1000);
+          }, 500);
+        }
         return;
       }
 
