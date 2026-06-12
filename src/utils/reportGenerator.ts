@@ -97,6 +97,18 @@ export const ReportGenerator = {
             color: #333;
             margin: 0;
             padding: 24px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            @page {
+              size: letter;
+              margin: 15mm;
+            }
           }
           .header-container {
             display: flex;

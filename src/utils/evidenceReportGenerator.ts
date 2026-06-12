@@ -135,6 +135,18 @@ export const EvidenceReportGenerator = {
             padding: 20px;
             line-height: 1.4;
             background-color: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            @page {
+              size: letter;
+              margin: 15mm;
+            }
           }
           .header-container {
             display: flex;
