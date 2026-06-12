@@ -153,7 +153,7 @@ export default function AdminEvidenciasScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(admin)/dashboard')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={themeColors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: themeColors.text }]}>Evidencias de Trabajo</Text>

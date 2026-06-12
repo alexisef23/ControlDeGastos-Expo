@@ -100,24 +100,30 @@ export const EvidenceReportGenerator = {
     if (antesImgSrc || despuesImgSrc) {
       fotosHtml = `
         <div class="section-title">Registro Fotográfico de Evidencia</div>
-        <div class="evidence-grid">
-          ${antesImgSrc ? `
-            <div class="evidence-card">
-              <div class="card-header antes">ESTADO ANTES</div>
-              <div class="image-wrapper">
-                <img src="${antesImgSrc}" alt="Antes del trabajo" />
-              </div>
-            </div>
-          ` : ''}
-          ${despuesImgSrc ? `
-            <div class="evidence-card">
-              <div class="card-header despues">ESTADO DESPUÉS</div>
-              <div class="image-wrapper">
-                <img src="${despuesImgSrc}" alt="Después del trabajo" />
-              </div>
-            </div>
-          ` : ''}
-        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: none;">
+          <tr>
+            ${antesImgSrc ? `
+              <td style="width: 50%; padding: 0 10px 0 0; vertical-align: top; border: none;">
+                <div class="evidence-card" style="border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background-color: #f7fafc;">
+                  <div class="card-header antes" style="font-size: 10px; font-weight: 800; text-align: center; padding: 4px; color: #ffffff; background-color: #e53e3e;">ESTADO ANTES</div>
+                  <div class="image-wrapper" style="height: 180px; display: flex; align-items: center; justify-content: center; background-color: #edf2f7; padding: 8px;">
+                    <img src="${antesImgSrc}" alt="Antes del trabajo" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;" />
+                  </div>
+                </div>
+              </td>
+            ` : ''}
+            ${despuesImgSrc ? `
+              <td style="width: 50%; padding: 0 0 0 10px; vertical-align: top; border: none;">
+                <div class="evidence-card" style="border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background-color: #f7fafc;">
+                  <div class="card-header despues" style="font-size: 10px; font-weight: 800; text-align: center; padding: 4px; color: #ffffff; background-color: #38a169;">ESTADO DESPUÉS</div>
+                  <div class="image-wrapper" style="height: 180px; display: flex; align-items: center; justify-content: center; background-color: #edf2f7; padding: 8px;">
+                    <img src="${despuesImgSrc}" alt="Después del trabajo" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;" />
+                  </div>
+                </div>
+              </td>
+            ` : ''}
+          </tr>
+        </table>
       `;
     }
 
@@ -313,19 +319,27 @@ export const EvidenceReportGenerator = {
         </style>
       </head>
       <body>
-        <div class="header-container">
-          <div class="logo-area">
-            <div class="logo-text">
-              <span class="logo-brand">INTTEC</span>
-              <span class="logo-tagline">INTEGRACIÓN DE TECNOLOGÍAS</span>
-            </div>
-            <img class="logo-img" src="${LOGO_BASE64}" />
-          </div>
-          <div class="report-info">
-            <h1 class="report-title">Reporte Técnico de Evidencia</h1>
-            <p class="report-meta">Fecha: ${fecha}</p>
-          </div>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 3px solid #1a365d; padding-bottom: 12px; margin-bottom: 15px; border: none;">
+          <tr>
+            <td style="vertical-align: middle; border: none; padding: 0;">
+              <table style="border-collapse: collapse; border: none;">
+                <tr>
+                  <td style="vertical-align: middle; padding: 0; border: none;">
+                    <span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 900; font-style: italic; color: #1a365d; line-height: 1; letter-spacing: 0.5px;">INTTEC</span><br/>
+                    <span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 7px; font-weight: 700; color: #4a5568; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 2px; display: inline-block;">INTEGRACIÓN DE TECNOLOGÍAS</span>
+                  </td>
+                  <td style="vertical-align: middle; padding-left: 10px; border: none;">
+                    <img src="${LOGO_BASE64}" style="width: 32px; height: 32px; object-fit: contain;" />
+                  </td>
+                </tr>
+              </table>
+            </td>
+            <td style="text-align: right; vertical-align: middle; border: none; padding: 0;">
+              <h1 class="report-title" style="font-size: 15px; font-weight: 800; color: #1a365d; text-transform: uppercase; margin: 0; letter-spacing: 0.5px;">Reporte Técnico de Evidencia</h1>
+              <p class="report-meta" style="font-size: 10px; color: #718096; margin-top: 2px; margin-bottom: 0;">Fecha: ${fecha}</p>
+            </td>
+          </tr>
+        </table>
 
         <table class="info-table">
           <tr>

@@ -226,41 +226,59 @@ export const ReportGenerator = {
         </style>
       </head>
       <body>
-        <div class="header-container">
-          <div>
-            <h1 class="title">${title}</h1>
-            <p class="subtitle">Generado el: ${new Date().toLocaleString()}</p>
-          </div>
-          <div class="logo-container">
-            <div class="logo-text">
-              <span class="logo-brand">INTTEC</span>
-              <span class="logo-tagline">INTEGRACIÓN DE TECNOLOGÍAS</span>
-            </div>
-            <img class="logo-img" src="${LOGO_BASE64}" />
-          </div>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 3px solid #0d1b2a; padding-bottom: 15px; margin-bottom: 20px; border: none;">
+          <tr>
+            <td style="vertical-align: middle; border: none; padding: 0;">
+              <h1 class="title" style="margin: 0; font-size: 24px; font-weight: bold; color: #0d1b2a;">${title}</h1>
+              <p class="subtitle" style="margin: 5px 0 0 0; font-size: 12px; color: #777;">Generado el: ${new Date().toLocaleString()}</p>
+            </td>
+            <td style="text-align: right; vertical-align: middle; border: none; padding: 0;">
+              <table style="display: inline-table; border-collapse: collapse; border: none;">
+                <tr>
+                  <td style="text-align: right; vertical-align: middle; padding-right: 10px; border: none;">
+                    <span class="logo-brand">INTTEC</span><br/>
+                    <span class="logo-tagline">INTEGRACIÓN DE TECNOLOGÍAS</span>
+                  </td>
+                  <td style="vertical-align: middle; border: none; padding: 0;">
+                    <img class="logo-img" src="${LOGO_BASE64}" style="width: 32px; height: 32px; object-fit: contain;" />
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
 
-        <div class="summary-grid">
-          <div class="summary-card">
-            <div class="label">Total Gastos</div>
-            <div class="value">${gastos.length}</div>
-          </div>
-          <div class="summary-card">
-            <div class="label">Aprobados</div>
-            <div class="value" style="color: #4CAF50;">${approvedCount}</div>
-          </div>
-          <div class="summary-card">
-            <div class="label">Pendientes</div>
-            <div class="value" style="color: #FFC107;">${pendingCount}</div>
-          </div>
-          <div class="summary-card">
-            <div class="label">Monto Total</div>
-            <div class="value" style="color: #1b4965;">${new Intl.NumberFormat('es-MX', {
-              style: 'currency',
-              currency: 'MXN',
-            }).format(totalMonto)}</div>
-          </div>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; border: none;">
+          <tr>
+            <td style="width: 25%; padding-right: 10px; border: none;">
+              <div class="summary-card">
+                <div class="label">Total Gastos</div>
+                <div class="value">${gastos.length}</div>
+              </div>
+            </td>
+            <td style="width: 25%; padding-left: 5px; padding-right: 5px; border: none;">
+              <div class="summary-card">
+                <div class="label">Aprobados</div>
+                <div class="value" style="color: #4CAF50;">${approvedCount}</div>
+              </div>
+            </td>
+            <td style="width: 25%; padding-left: 5px; padding-right: 5px; border: none;">
+              <div class="summary-card">
+                <div class="label">Pendientes</div>
+                <div class="value" style="color: #FFC107;">${pendingCount}</div>
+              </div>
+            </td>
+            <td style="width: 25%; padding-left: 10px; border: none;">
+              <div class="summary-card">
+                <div class="label">Monto Total</div>
+                <div class="value" style="color: #1b4965;">${new Intl.NumberFormat('es-MX', {
+                  style: 'currency',
+                  currency: 'MXN',
+                }).format(totalMonto)}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
 
         <table>
           <thead>
