@@ -21,6 +21,10 @@ export interface OfflineGastoItem {
   tipo_tarjeta?: string | null;
   ubicacion_registro?: string | null;
   estado?: string | null;
+  facturado?: boolean | null;
+  base64Factura?: string | null;
+  facturaExt?: string | null;
+  motivo_sin_factura?: string | null;
   created_at: string;
 }
 
@@ -125,6 +129,7 @@ export const SyncService = {
       for (const item of queue) {
         try {
           let publicUrl = '';
+          let publicInvoiceUrl = '';
 
           // 1. Subir foto a Supabase Storage si existe
           if (item.base64Foto) {
@@ -146,6 +151,28 @@ export const SyncService = {
             publicUrl = urlData.publicUrl;
           }
 
+          // 1.5 Subir factura a Supabase Storage si existe
+          if (item.base64Factura) {
+            const ext = item.facturaExt || 'jpg';
+            const contentType = ext === 'pdf' ? 'application/pdf' : 'image/jpeg';
+            const fileName = `${item.empleado_id}/factura_${Date.now()}.${ext}`;
+            const arrayBuffer = base64ToArrayBuffer(item.base64Factura);
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('tickets')
+              .upload(fileName, arrayBuffer, {
+                contentType: contentType,
+                upsert: true,
+              });
+
+            if (uploadError) {
+              throw new Error(`Storage invoice upload error: ${uploadError.message}`);
+            }
+
+            const { data: urlData } = supabase.storage.from('tickets').getPublicUrl(fileName);
+            publicInvoiceUrl = urlData.publicUrl;
+          }
+
           // 2. Insertar registro en Supabase Gastos Table
           const { error: dbError } = await supabase.from('gastos').insert([
             {
@@ -165,6 +192,9 @@ export const SyncService = {
               tipo_tarjeta: item.tipo_tarjeta || null,
               ubicacion_registro: item.ubicacion_registro || 'Móvil (Offline Sync)',
               estado: item.estado || null,
+              facturado: item.facturado || false,
+              factura_url: publicInvoiceUrl || null,
+              motivo_sin_factura: item.motivo_sin_factura || null,
               created_at: item.created_at,
             },
           ]);

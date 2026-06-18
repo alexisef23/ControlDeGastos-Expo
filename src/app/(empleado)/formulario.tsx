@@ -86,6 +86,12 @@ export default function GastoForm() {
   // Paso 2: Detalles
   const [monto, setMonto] = useState('');
   const [proveedor, setProveedor] = useState('');
+  const [facturado, setFacturado] = useState<boolean | null>(null);
+  const [facturaUri, setFacturaUri] = useState<string | null>(null);
+  const [facturaBase64, setFacturaBase64] = useState<string | null>(null);
+  const [facturaExt, setFacturaExt] = useState<string | null>(null);
+  const [motivoSinFactura, setMotivoSinFactura] = useState('');
+  const [activePreviewUrl, setActivePreviewUrl] = useState<string | null>(null);
 
   const getTodayFriendly = () => {
     const today = new Date();
@@ -160,10 +166,9 @@ export default function GastoForm() {
       }
     }
 
-    // 2. Validar artículos no permitidos localmente
     const keywordsInfraccion = [
-      'cigarro', 'tabaco', 'papita', 'galleta', 'chucheria', 'dulce', 'fritura', 'chocolate', 'refresco',
-      'soda', 'gansito', 'sabritas', 'barcel', 'marinela', 'coca-cola', 'coca cola', 'pepsi', 'alcohol', 'cerveza'
+      'cigarro', 'tabaco', 'papita', 'galleta', 'chucheria', 'dulce', 'fritura', 'chocolate',
+      'gansito', 'sabritas', 'barcel', 'marinela', 'alcohol', 'cerveza'
     ];
     const textToCheck = `${justificacion} ${proveedor}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const infraccionesDetectadas = keywordsInfraccion.filter(keyword => textToCheck.includes(keyword));
@@ -289,6 +294,58 @@ export default function GastoForm() {
     }
   };
 
+  // Métodos para seleccionar y capturar factura
+  const handleCaptureFactura = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return;
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: Platform.OS !== 'web',
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        setFacturaUri(result.assets[0].uri);
+        setFacturaBase64(result.assets[0].base64 || null);
+        setFacturaExt('jpg');
+      }
+    } catch (err) {
+      console.error('Invoice camera capture error:', err);
+      if (Platform.OS === 'web') {
+        await handleSelectFacturaGallery();
+      } else {
+        Alert.alert('Error', 'No se pudo abrir la cámara.');
+      }
+    }
+  };
+
+  const handleSelectFacturaGallery = async () => {
+    const hasPermission = await requestLibraryPermission();
+    if (!hasPermission) return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        setFacturaUri(result.assets[0].uri);
+        setFacturaBase64(result.assets[0].base64 || null);
+        setFacturaExt('jpg');
+      }
+    } catch (err) {
+      console.error('Invoice gallery select error:', err);
+      Alert.alert('Error', 'No se pudo abrir la galería.');
+    }
+  };
+
+
   // Escanear con IA (Gemini OCR)
   const handleScanWithIA = async () => {
     if (!imageBase64) return;
@@ -412,7 +469,6 @@ export default function GastoForm() {
       setIsScanning(false);
     }
   };
-
   // Filtrar subcategorías según la categoría seleccionada
   const activeCategoriaId = categorias.find((c) => c.nombre === selectedCategoria)?.id;
   const filteredSubcategorias = subcategorias.filter(
@@ -447,6 +503,24 @@ export default function GastoForm() {
       return;
     }
 
+    if (facturado === null) {
+      Alert.alert('Validación', 'Por favor especifica si el gasto está facturado.');
+      setCurrentStep(2);
+      return;
+    }
+
+    if (facturado && !facturaBase64) {
+      Alert.alert('Validación', 'Por favor sube la foto o el PDF de la factura.');
+      setCurrentStep(2);
+      return;
+    }
+
+    if (!facturado && !motivoSinFactura.trim()) {
+      Alert.alert('Validación', 'Por favor explica por qué no hay factura.');
+      setCurrentStep(2);
+      return;
+    }
+
     setIsSubmitting(false);
     
     const dbFecha = formatFriendlyToDb(fechaComprobante);
@@ -472,6 +546,8 @@ export default function GastoForm() {
       tipo_tarjeta: null,
       ubicacion_registro: 'Móvil',
       estado: selectedEstado || null,
+      facturado: facturado,
+      motivo_sin_factura: facturado ? null : motivoSinFactura.trim(),
     };
 
     setIsSubmitting(true);
@@ -496,10 +572,29 @@ export default function GastoForm() {
           publicUrl = urlData.publicUrl;
         }
 
+        // Subir factura si se seleccionó una
+        let publicInvoiceUrl = '';
+        if (facturado && facturaBase64) {
+          const ext = facturaExt || 'jpg';
+          const contentType = ext === 'pdf' ? 'application/pdf' : 'image/jpeg';
+          const fileName = `${currentUser.id}/factura_${Date.now()}.${ext}`;
+          const arrayBuffer = base64ToArrayBuffer(facturaBase64);
+
+          const { error: uploadError } = await supabase.storage
+            .from('tickets')
+            .upload(fileName, arrayBuffer, { contentType: contentType, upsert: true });
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage.from('tickets').getPublicUrl(fileName);
+          publicInvoiceUrl = urlData.publicUrl;
+        }
+
         const { error: dbError } = await supabase.from('gastos').insert([
           {
             ...gastoPayload,
             foto_url: publicUrl || null,
+            factura_url: publicInvoiceUrl || null,
             status: 'PENDING',
           },
         ]);
@@ -511,6 +606,8 @@ export default function GastoForm() {
         await SyncService.enqueueGasto({
           ...gastoPayload,
           base64Foto: imageBase64 || undefined,
+          base64Factura: facturado ? (facturaBase64 || undefined) : undefined,
+          facturaExt: facturado ? (facturaExt || undefined) : undefined,
         });
         Alert.alert(
           'Guardado sin conexión',
@@ -543,6 +640,18 @@ export default function GastoForm() {
       }
       if (!selectedEstado) {
         Alert.alert('Validación', 'Por favor selecciona el Estado de la República.');
+        return;
+      }
+      if (facturado === null) {
+        Alert.alert('Validación', 'Por favor especifica si el gasto está facturado.');
+        return;
+      }
+      if (facturado && !facturaBase64) {
+        Alert.alert('Validación', 'Por favor sube la foto o el PDF de la factura.');
+        return;
+      }
+      if (!facturado && !motivoSinFactura.trim()) {
+        Alert.alert('Validación', 'Por favor explica por qué no hay factura.');
         return;
       }
     }
@@ -587,7 +696,10 @@ export default function GastoForm() {
                   <View style={styles.previewContainer}>
                     <TouchableOpacity
                       activeOpacity={0.9}
-                      onPress={() => setViewerVisible(true)}
+                      onPress={() => {
+                        setActivePreviewUrl(imageUri);
+                        setViewerVisible(true);
+                      }}
                       style={{ flex: 1 }}
                     >
                       <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="contain" />
@@ -882,7 +994,119 @@ export default function GastoForm() {
                 </View>
               )}
 
+              {/* Selector de ¿Está facturado? */}
+              <View style={styles.selectorGroup}>
+                <Text style={[styles.selectorLabel, { color: themeColors.text }]}>¿Está facturado? *</Text>
+                <View style={styles.paymentSelector}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFacturado(true);
+                      setMotivoSinFactura('');
+                    }}
+                    style={[
+                      styles.paymentOption,
+                      {
+                        backgroundColor: facturado === true ? themeColors.accent : themeColors.backgroundElement,
+                        borderColor: facturado === true ? 'transparent' : themeColors.border,
+                        flex: 1,
+                        alignItems: 'center',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.paymentOptionText, { color: facturado === true ? '#ffffff' : themeColors.text }]}>
+                      Sí
+                    </Text>
+                  </TouchableOpacity>
 
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFacturado(false);
+                      setFacturaUri(null);
+                      setFacturaBase64(null);
+                      setFacturaExt(null);
+                    }}
+                    style={[
+                      styles.paymentOption,
+                      {
+                        backgroundColor: facturado === false ? themeColors.accent : themeColors.backgroundElement,
+                        borderColor: facturado === false ? 'transparent' : themeColors.border,
+                        flex: 1,
+                        alignItems: 'center',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.paymentOptionText, { color: facturado === false ? '#ffffff' : themeColors.text }]}>
+                      No
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Campos condicionales de facturación */}
+              {facturado === true && (
+                <View style={[styles.selectorGroup, { paddingLeft: Spacing.two, borderLeftWidth: 2, borderLeftColor: themeColors.accent }]}>
+                  <Text style={[styles.selectorLabel, { color: themeColors.text }]}>Adjuntar Factura *</Text>
+                  
+                  {facturaUri ? (
+                    <View style={[styles.invoicePreviewCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => {
+                          setActivePreviewUrl(facturaUri);
+                          setViewerVisible(true);
+                        }}
+                        style={{ width: 80, height: 80, borderRadius: BorderRadius.small, overflow: 'hidden' }}
+                      >
+                        <Image source={{ uri: facturaUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.removeInvoiceBtn, { backgroundColor: themeColors.danger }]}
+                        onPress={() => {
+                          setFacturaUri(null);
+                          setFacturaBase64(null);
+                          setFacturaExt(null);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#ffffff" />
+                        <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>Eliminar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.actionGrid}>
+                      <TouchableOpacity
+                        onPress={handleCaptureFactura}
+                        style={[styles.actionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                      >
+                        <Ionicons name="camera-sharp" size={20} color={themeColors.accent} />
+                        <Text style={[styles.actionBtnText, { color: themeColors.text, fontSize: 13 }]}>Cámara</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={handleSelectFacturaGallery}
+                        style={[styles.actionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                      >
+                        <Ionicons name="images-sharp" size={20} color={themeColors.accent} />
+                        <Text style={[styles.actionBtnText, { color: themeColors.text, fontSize: 13 }]}>Galería</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {facturado === false && (
+                <View style={[styles.selectorGroup, { paddingLeft: Spacing.two, borderLeftWidth: 2, borderLeftColor: themeColors.accent }]}>
+                  <CustomInput
+                    label="Explicación de falta de factura *"
+                    placeholder="Explica por qué no hay factura para este gasto..."
+                    value={motivoSinFactura}
+                    onChangeText={setMotivoSinFactura}
+                    multiline
+                    numberOfLines={3}
+                    style={{ height: 70 }}
+                    iconName="warning-outline"
+                  />
+                </View>
+              )}
 
               <View style={styles.footerNav}>
                 <CustomButton title="Atrás" onPress={prevStep} variant="secondary" style={styles.navBtn} />
@@ -1063,8 +1287,11 @@ export default function GastoForm() {
 
       <ImageViewerModal
         visible={viewerVisible}
-        imageUrl={imageUri}
-        onClose={() => setViewerVisible(false)}
+        imageUrl={activePreviewUrl}
+        onClose={() => {
+          setViewerVisible(false);
+          setActivePreviewUrl(null);
+        }}
       />
     </SafeAreaView>
   );
@@ -1265,5 +1492,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     lineHeight: 16,
+  },
+  invoicePreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.two,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.two,
+    marginTop: Spacing.one,
+  },
+  pdfPreviewContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    flex: 1,
+  },
+  pdfFileName: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  removeInvoiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderRadius: BorderRadius.small,
+    gap: Spacing.half,
   },
 });

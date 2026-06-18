@@ -32,9 +32,13 @@ export const GeminiService = {
   "categoria": string (una categoría sugerida de gasto como Alimentos, Transporte, Papelería, Peajes, Combustible, etc. de acuerdo a la compra),
   "subcategoria": string (una subcategoría específica sugerida de acuerdo a la categoría anterior, ej: Desayuno, Taxis, Gasolina, Hojas bond, si no hay usa null),
   "estado": string (debe ser exactamente uno de los 32 estados de la República Mexicana: Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas, Chihuahua, Coahuila, Colima, Ciudad de México, Durango, Guanajuato, Guerrero, Hidalgo, Jalisco, Estado de México, Michoacán, Morelos, Nayarit, Nuevo León, Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí, Sinaloa, Sonora, Tabasco, Tamaulipas, Tlaxcala, Veracruz, Yucatán, Zacatecas. Identifícalo de forma inteligente según la dirección, RFC, código postal, sucursal, teléfono o texto del ticket. Si no se puede determinar usa null),
-  "alerta_politica": string (si detectas compras de artículos no permitidos como alcohol/bebidas alcohólicas, cigarros, tabaco, propinas excesivas, o comida chatarra/chucherías (como papitas, papas fritas, frituras, galletas, dulces, chocolates, refrescos o gomitas), describe la advertencia en español.
-  Además, si detectas consumo de alimentos (comida, restaurante, cafetería) y el monto total supera los $280 MXN, genera una alerta en español indicando que se excedió el límite general por comida de $280 MXN, ej: "Límite de alimentos excedido: el límite general es de $280 MXN y se gastó $320 MXN".
-  Si no se detectan infracciones de política, usa null)
+  "alerta_politica": string (Genera una alerta descriptiva en español si detectas alguna de las siguientes infracciones:
+  - Consumo de alcohol/bebidas alcohólicas, cigarros o tabaco (totalmente prohibido).
+  - Consumo de dulces, chocolates, galletas, chucherías o comida chatarra (como papitas, papas fritas, frituras, gomitas, etc.). Nota: La compra de refrescos/bebidas gaseosas normales SÍ está permitida y NO debe generar alerta.
+  - Gastos excesivos o sin sentido comercial justificable.
+  - Compras en tiendas de conveniencia (como Oxxo, 7-Eleven) o restaurantes de artículos que NO sean estrictamente alimentos (comidas/bebidas), por ejemplo: cargadores de celular, juguetes, medicamentos, cigarros, etc.
+  - Si se trata de consumo de alimentos (comida, restaurante, cafetería) y el monto total de consumo supera los $280 MXN, genera una alerta indicando que se excedió el límite general por comida de $280 MXN.
+  Si no detectas ninguna de estas infracciones de política, usa null)
 }`;
 
     const requestBody = {

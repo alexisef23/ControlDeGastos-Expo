@@ -31,6 +31,9 @@ CREATE TABLE public.gastos (
   tipo_tarjeta character varying,
   ubicacion_registro character varying,
   estado text,
+  facturado boolean DEFAULT false,
+  factura_url text,
+  motivo_sin_factura text,
   CONSTRAINT gastos_pkey PRIMARY KEY (id),
   CONSTRAINT gastos_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
 );

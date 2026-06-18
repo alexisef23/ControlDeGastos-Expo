@@ -70,6 +70,9 @@ export interface Gasto {
   tipo_tarjeta?: string | null;
   ubicacion_registro?: string | null;
   estado?: string | null;
+  facturado?: boolean | null;
+  factura_url?: string | null;
+  motivo_sin_factura?: string | null;
 }
 
 export interface Evidencia {

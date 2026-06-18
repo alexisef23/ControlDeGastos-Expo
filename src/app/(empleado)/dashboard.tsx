@@ -41,6 +41,7 @@ export default function EmpleadoDashboard() {
   const [selectedGasto, setSelectedGasto] = useState<(Gasto & { isOffline?: boolean }) | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [activePreviewUrl, setActivePreviewUrl] = useState<string | null>(null);
   
   // Feedback para Action Required
   const [repondFeedback, setRespondFeedback] = useState('');
@@ -430,7 +431,10 @@ export default function EmpleadoDashboard() {
                 {selectedGasto.foto_url || (selectedGasto.isOffline && (selectedGasto as any).base64Foto) ? (
                   <TouchableOpacity
                     activeOpacity={0.9}
-                    onPress={() => setViewerVisible(true)}
+                    onPress={() => {
+                      setActivePreviewUrl(selectedGasto.foto_url || `data:image/jpeg;base64,${(selectedGasto as any).base64Foto}`);
+                      setViewerVisible(true);
+                    }}
                     style={styles.modalImageContainer}
                   >
                     <Image
@@ -516,6 +520,43 @@ export default function EmpleadoDashboard() {
                       {!selectedGasto.sucursal && !selectedGasto.cliente ? 'N/A' : ''}
                     </Text>
                   </View>
+
+                  <View style={styles.detailItem}>
+                    <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Facturación</Text>
+                    <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                      {selectedGasto.facturado ? 'Sí, Facturado' : 'No Facturado'}
+                    </Text>
+                  </View>
+
+                  {selectedGasto.facturado ? (
+                    <View style={styles.detailItem}>
+                      <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Archivo de Factura</Text>
+                      {selectedGasto.factura_url || (selectedGasto.isOffline && (selectedGasto as any).base64Factura) ? (
+                        <TouchableOpacity
+                          style={[styles.invoiceLinkBtn, { backgroundColor: themeColors.accent + '15' }]}
+                          onPress={() => {
+                            const imgUrl = selectedGasto.factura_url || `data:image/jpeg;base64,${(selectedGasto as any).base64Factura}`;
+                            setActivePreviewUrl(imgUrl);
+                            setViewerVisible(true);
+                          }}
+                        >
+                          <Ionicons name="image" size={18} color={themeColors.accent} />
+                          <Text style={[styles.invoiceLinkText, { color: themeColors.accent }]}>
+                            Ver Factura
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.detailValue, { color: themeColors.textSecondary }]}>Sin archivo adjunto</Text>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={styles.detailItem}>
+                      <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Motivo de No Factura</Text>
+                      <Text style={[styles.detailValue, { color: themeColors.text, fontStyle: 'italic' }]}>
+                        {selectedGasto.motivo_sin_factura || 'No especificado'}
+                      </Text>
+                    </View>
+                  )}
 
                   {/* Sección Action Required */}
                   {selectedGasto.status === 'ACTION_REQUIRED' && (
@@ -635,8 +676,11 @@ export default function EmpleadoDashboard() {
 
       <ImageViewerModal
         visible={viewerVisible}
-        imageUrl={selectedGasto ? (selectedGasto.foto_url || `data:image/jpeg;base64,${(selectedGasto as any).base64Foto}`) : null}
-        onClose={() => setViewerVisible(false)}
+        imageUrl={activePreviewUrl}
+        onClose={() => {
+          setViewerVisible(false);
+          setActivePreviewUrl(null);
+        }}
       />
     </SafeAreaView>
   );
@@ -868,5 +912,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     lineHeight: 16,
+  },
+  invoiceLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.two,
+    borderRadius: BorderRadius.small,
+    gap: Spacing.one,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  invoiceLinkText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

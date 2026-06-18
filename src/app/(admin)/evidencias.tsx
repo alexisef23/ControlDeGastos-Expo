@@ -45,7 +45,7 @@ export default function AdminEvidenciasScreen() {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [viewerVisible, setViewerVisible] = useState(false);
 
-  const handleOpenPhoto = (uri: string | null) => {
+  const handleOpenPhoto = (uri: string | null | undefined) => {
     if (uri) {
       setSelectedPhoto(uri);
       setViewerVisible(true);
