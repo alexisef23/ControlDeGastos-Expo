@@ -25,6 +25,7 @@ import CustomButton from '@/components/CustomButton';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import ImageViewerModal from '@/components/ImageViewerModal';
 
 const ESTADOS_MEXICO = [
   'Aguascalientes',
@@ -80,6 +81,7 @@ export default function GastoForm() {
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
 
   // Paso 2: Detalles
   const [monto, setMonto] = useState('');
@@ -206,16 +208,28 @@ export default function GastoForm() {
     init();
   }, [router]);
 
-  // Solicitar permisos de cámara/galería
-  const requestPermissions = async (): Promise<boolean> => {
+  // Solicitar permiso de cámara
+  const requestCameraPermission = async (): Promise<boolean> => {
     if (Platform.OS === 'web') return true;
     const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
-    const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (cameraStatus.status !== 'granted' || libraryStatus.status !== 'granted') {
+    if (cameraStatus.status !== 'granted') {
       Alert.alert(
-        'Permisos requeridos',
-        'Necesitamos permisos de cámara y galería para capturar la evidencia del ticket.'
+        'Permiso de cámara requerido',
+        'Necesitamos permiso de la cámara para capturar la evidencia del ticket.'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  // Solicitar permiso de galería
+  const requestLibraryPermission = async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return true;
+    const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (libraryStatus.status !== 'granted') {
+      Alert.alert(
+        'Permiso de galería requerido',
+        'Necesitamos permiso de la galería para seleccionar la imagen del ticket.'
       );
       return false;
     }
@@ -223,17 +237,13 @@ export default function GastoForm() {
   };
 
   const handleCapturePhoto = async () => {
-    if (Platform.OS === 'web') {
-      await handleSelectGallery();
-      return;
-    }
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestCameraPermission();
     if (!hasPermission) return;
 
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsEditing: Platform.OS !== 'web',
         quality: 0.5,
         base64: true,
       });
@@ -246,12 +256,17 @@ export default function GastoForm() {
       }
     } catch (err) {
       console.error('Camera capture error:', err);
-      Alert.alert('Error', 'No se pudo abrir la cámara.');
+      if (Platform.OS === 'web') {
+        // En la web si falla launchCameraAsync (por ejemplo, sin webcam), redirigimos a la galería
+        await handleSelectGallery();
+      } else {
+        Alert.alert('Error', 'No se pudo abrir la cámara.');
+      }
     }
   };
 
   const handleSelectGallery = async () => {
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestLibraryPermission();
     if (!hasPermission) return;
 
     try {
@@ -570,7 +585,13 @@ export default function GastoForm() {
               <View style={[styles.imageCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
                 {imageUri ? (
                   <View style={styles.previewContainer}>
-                    <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="contain" />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => setViewerVisible(true)}
+                      style={{ flex: 1 }}
+                    >
+                      <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="contain" />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.removeImageBtn}
                       onPress={() => {
@@ -1039,6 +1060,12 @@ export default function GastoForm() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ImageViewerModal
+        visible={viewerVisible}
+        imageUrl={imageUri}
+        onClose={() => setViewerVisible(false)}
+      />
     </SafeAreaView>
   );
 }

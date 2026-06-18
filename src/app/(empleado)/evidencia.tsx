@@ -23,6 +23,7 @@ import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal from '@/components/ImageViewerModal';
 
 export default function EvidenciaForm() {
   const router = useRouter();
@@ -50,6 +51,17 @@ export default function EvidenciaForm() {
   // Paso 3: Reporte IA y Exportación
   const [resumenIA, setResumenIA] = useState<string | null>(null);
 
+  // Modal de imagen a pantalla completa
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+
+  const handleOpenPhoto = (uri: string | null) => {
+    if (uri) {
+      setSelectedPhoto(uri);
+      setViewerVisible(true);
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       const user = await AuthService.getCurrentUser();
@@ -62,15 +74,28 @@ export default function EvidenciaForm() {
     init();
   }, [router]);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  // Solicitar permiso de cámara
+  const requestCameraPermission = async (): Promise<boolean> => {
     if (Platform.OS === 'web') return true;
     const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
-    const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (cameraStatus.status !== 'granted' || libraryStatus.status !== 'granted') {
+    if (cameraStatus.status !== 'granted') {
       Alert.alert(
-        'Permisos requeridos',
-        'Se necesitan permisos de cámara y galería para registrar las fotos de evidencia.'
+        'Permiso de cámara requerido',
+        'Necesitamos permiso de la cámara para capturar fotos de las evidencias.'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  // Solicitar permiso de galería
+  const requestLibraryPermission = async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return true;
+    const libraryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (libraryStatus.status !== 'granted') {
+      Alert.alert(
+        'Permiso de galería requerido',
+        'Necesitamos permiso de la galería para seleccionar las imágenes de las evidencias.'
       );
       return false;
     }
@@ -78,17 +103,13 @@ export default function EvidenciaForm() {
   };
 
   const handleCapturePhoto = async (type: 'antes' | 'despues' | 'adicional') => {
-    if (Platform.OS === 'web') {
-      await handleSelectGallery(type);
-      return;
-    }
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestCameraPermission();
     if (!hasPermission) return;
 
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: Platform.OS !== 'web',
         quality: 0.4,
         base64: true,
       });
@@ -109,17 +130,21 @@ export default function EvidenciaForm() {
       }
     } catch (err) {
       console.error('Camera capture error:', err);
-      Alert.alert('Error', 'No se pudo abrir la cámara.');
+      if (Platform.OS === 'web') {
+        await handleSelectGallery(type);
+      } else {
+        Alert.alert('Error', 'No se pudo abrir la cámara.');
+      }
     }
   };
 
   const handleSelectGallery = async (type: 'antes' | 'despues' | 'adicional') => {
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestLibraryPermission();
     if (!hasPermission) return;
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: type === 'adicional',
         allowsEditing: type !== 'adicional',
         quality: 0.4,
@@ -361,7 +386,13 @@ export default function EvidenciaForm() {
               <View style={[styles.imageCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
                 {imageUriAntes ? (
                   <View style={styles.previewContainer}>
-                    <Image source={{ uri: imageUriAntes }} style={styles.previewImage} resizeMode="contain" />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenPhoto(imageUriAntes)}
+                      style={{ flex: 1 }}
+                    >
+                      <Image source={{ uri: imageUriAntes }} style={styles.previewImage} resizeMode="contain" />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.removeImageBtn}
                       onPress={() => {
@@ -403,7 +434,13 @@ export default function EvidenciaForm() {
               <View style={[styles.imageCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
                 {imageUriDespues ? (
                   <View style={styles.previewContainer}>
-                    <Image source={{ uri: imageUriDespues }} style={styles.previewImage} resizeMode="contain" />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenPhoto(imageUriDespues)}
+                      style={{ flex: 1 }}
+                    >
+                      <Image source={{ uri: imageUriDespues }} style={styles.previewImage} resizeMode="contain" />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.removeImageBtn}
                       onPress={() => {
@@ -449,7 +486,13 @@ export default function EvidenciaForm() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.adicionalesList}>
                   {fotosAdicionales.map((item, index) => (
                     <View key={index} style={[styles.adicionalCard, { borderColor: themeColors.border }]}>
-                      <Image source={{ uri: item.uri }} style={styles.adicionalImage} />
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleOpenPhoto(item.uri)}
+                        style={{ width: '100%', height: '100%' }}
+                      >
+                        <Image source={{ uri: item.uri }} style={styles.adicionalImage} />
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.removeAdicionalBtn}
                         onPress={() => {
@@ -605,6 +648,12 @@ export default function EvidenciaForm() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ImageViewerModal
+        visible={viewerVisible}
+        imageUrl={selectedPhoto}
+        onClose={() => setViewerVisible(false)}
+      />
     </SafeAreaView>
   );
 }

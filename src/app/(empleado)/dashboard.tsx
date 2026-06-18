@@ -23,6 +23,7 @@ import CustomButton from '@/components/CustomButton';
 import CustomInput from '@/components/CustomInput';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal from '@/components/ImageViewerModal';
 
 export default function EmpleadoDashboard() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function EmpleadoDashboard() {
   // Modal de Detalles
   const [selectedGasto, setSelectedGasto] = useState<(Gasto & { isOffline?: boolean }) | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
   
   // Feedback para Action Required
   const [repondFeedback, setRespondFeedback] = useState('');
@@ -426,7 +428,11 @@ export default function EmpleadoDashboard() {
               <ScrollView contentContainerStyle={styles.modalScroll}>
                 {/* Evidencia Imagen */}
                 {selectedGasto.foto_url || (selectedGasto.isOffline && (selectedGasto as any).base64Foto) ? (
-                  <View style={styles.modalImageContainer}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => setViewerVisible(true)}
+                    style={styles.modalImageContainer}
+                  >
                     <Image
                       source={{
                         uri: selectedGasto.foto_url || `data:image/jpeg;base64,${(selectedGasto as any).base64Foto}`,
@@ -434,7 +440,7 @@ export default function EmpleadoDashboard() {
                       style={styles.modalImage}
                       resizeMode="contain"
                     />
-                  </View>
+                  </TouchableOpacity>
                 ) : (
                   <View style={[styles.modalNoImage, { backgroundColor: themeColors.backgroundElement }]}>
                     <Ionicons name="image-outline" size={48} color={themeColors.textSecondary} />
@@ -626,6 +632,12 @@ export default function EmpleadoDashboard() {
           </View>
         </View>
       </Modal>
+
+      <ImageViewerModal
+        visible={viewerVisible}
+        imageUrl={selectedGasto ? (selectedGasto.foto_url || `data:image/jpeg;base64,${(selectedGasto as any).base64Foto}`) : null}
+        onClose={() => setViewerVisible(false)}
+      />
     </SafeAreaView>
   );
 }

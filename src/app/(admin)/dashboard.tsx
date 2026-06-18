@@ -23,6 +23,7 @@ import CustomButton from '@/components/CustomButton';
 import CustomInput from '@/components/CustomInput';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal from '@/components/ImageViewerModal';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function AdminDashboard() {
   const [rejectionFeedback, setRejectionFeedback] = useState('');
   const [showFeedbackInput, setShowFeedbackInput] = useState(false);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
 
   // Registro y Edición de Usuario (Personal)
   const [addUserModalVisible, setAddUserModalVisible] = useState(false);
@@ -742,9 +744,13 @@ export default function AdminDashboard() {
             {selectedGasto && (
               <ScrollView contentContainerStyle={styles.modalScroll}>
                 {selectedGasto.foto_url ? (
-                  <View style={styles.modalImageContainer}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => setViewerVisible(true)}
+                    style={styles.modalImageContainer}
+                  >
                     <Image source={{ uri: selectedGasto.foto_url }} style={styles.modalImage} resizeMode="contain" />
-                  </View>
+                  </TouchableOpacity>
                 ) : (
                   <View style={[styles.modalNoImage, { backgroundColor: themeColors.backgroundElement }]}>
                     <Ionicons name="image-outline" size={48} color={themeColors.textSecondary} />
@@ -1162,6 +1168,12 @@ export default function AdminDashboard() {
           </View>
         </View>
       </Modal>
+
+      <ImageViewerModal
+        visible={viewerVisible}
+        imageUrl={selectedGasto ? selectedGasto.foto_url : null}
+        onClose={() => setViewerVisible(false)}
+      />
     </SafeAreaView>
   );
 }

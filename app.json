@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.alexisef23.appmovil"
     },
     "web": {
       "output": "static",
@@ -37,11 +38,24 @@
       ],
       "expo-secure-store",
       "expo-sharing",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite que esta aplicación acceda a tu galería de fotos para subir evidencias de gastos y trabajos.",
+          "cameraPermission": "Permite que esta aplicación acceda a tu cámara para capturar fotos de tickets y evidencias de trabajo."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a94e3f64-b9a8-4a1c-b8aa-2fa716dd4752"
+      }
     }
   }
 }

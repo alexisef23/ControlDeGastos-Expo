@@ -20,6 +20,7 @@ import CustomInput from '@/components/CustomInput';
 import CustomButton from '@/components/CustomButton';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal from '@/components/ImageViewerModal';
 
 export default function MiTrabajoScreen() {
   const router = useRouter();
@@ -37,6 +38,17 @@ export default function MiTrabajoScreen() {
   const [selectedEvidencia, setSelectedEvidencia] = useState<Evidencia | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Modal de imagen a pantalla completa
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+
+  const handleOpenPhoto = (uri: string | null) => {
+    if (uri) {
+      setSelectedPhoto(uri);
+      setViewerVisible(true);
+    }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -261,14 +273,18 @@ export default function MiTrabajoScreen() {
                 {/* Fotos de Evidencia */}
                 <View style={styles.evidencePhotosContainer}>
                   {selectedEvidencia.foto_antes_url ? (
-                    <View style={styles.photoWrapper}>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenPhoto(selectedEvidencia.foto_antes_url)}
+                      style={styles.photoWrapper}
+                    >
                       <Text style={[styles.photoTypeLabel, { color: themeColors.danger }]}>Antes</Text>
                       <Image
                         source={{ uri: selectedEvidencia.foto_antes_url }}
                         style={styles.modalImage}
                         resizeMode="cover"
                       />
-                    </View>
+                    </TouchableOpacity>
                   ) : (
                     <View style={[styles.modalNoImage, { backgroundColor: themeColors.backgroundElement }]}>
                       <Ionicons name="camera-outline" size={32} color={themeColors.textSecondary} />
@@ -277,14 +293,18 @@ export default function MiTrabajoScreen() {
                   )}
 
                   {selectedEvidencia.foto_despues_url ? (
-                    <View style={styles.photoWrapper}>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenPhoto(selectedEvidencia.foto_despues_url)}
+                      style={styles.photoWrapper}
+                    >
                       <Text style={[styles.photoTypeLabel, { color: themeColors.success }]}>Después</Text>
                       <Image
                         source={{ uri: selectedEvidencia.foto_despues_url }}
                         style={styles.modalImage}
                         resizeMode="cover"
                       />
-                    </View>
+                    </TouchableOpacity>
                   ) : (
                     <View style={[styles.modalNoImage, { backgroundColor: themeColors.backgroundElement }]}>
                       <Ionicons name="camera-outline" size={32} color={themeColors.textSecondary} />
@@ -341,9 +361,14 @@ export default function MiTrabajoScreen() {
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.adicionalPhotosScroll}>
                         {selectedEvidencia.fotos_adicionales_urls.map((url, index) => (
-                          <View key={index} style={styles.adicionalPhotoCard}>
+                          <TouchableOpacity
+                            key={index}
+                            activeOpacity={0.9}
+                            onPress={() => handleOpenPhoto(url)}
+                            style={styles.adicionalPhotoCard}
+                          >
                             <Image source={{ uri: url }} style={styles.adicionalModalImage} resizeMode="cover" />
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </ScrollView>
                     </View>
@@ -399,6 +424,12 @@ export default function MiTrabajoScreen() {
       >
         <Ionicons name="camera" size={24} color="#ffffff" />
       </TouchableOpacity>
+
+      <ImageViewerModal
+        visible={viewerVisible}
+        imageUrl={selectedPhoto}
+        onClose={() => setViewerVisible(false)}
+      />
     </SafeAreaView>
   );
 }
