@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   Modal,
   View,
@@ -8,21 +8,74 @@ import {
   SafeAreaView,
   Platform,
   Dimensions,
+  Text,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { captureRef } from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
+
+interface AsistenciaInfo {
+  fecha: string;
+  hora: string;
+  direccion: string;
+  lat: number;
+  lng: number;
+  empleadoNombre: string;
+  tipo: 'Entrada' | 'Salida';
+}
 
 interface ImageViewerModalProps {
   visible: boolean;
   imageUrl: string | null;
   onClose: () => void;
+  asistenciaInfo?: AsistenciaInfo | null;
 }
+
+const getStaticMapUrl = (lat: number, lng: number) => {
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=16&size=200x200&maptype=mapnik&markers=${lat},${lng},red-pushpin`;
+};
+
+const formatFecha = (fechaStr: string) => {
+  const parts = fechaStr.split('-');
+  if (parts.length === 3) {
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  return fechaStr;
+};
 
 export default function ImageViewerModal({
   visible,
   imageUrl,
   onClose,
+  asistenciaInfo,
 }: ImageViewerModalProps) {
+  const viewRef = useRef<View>(null);
+
   if (!imageUrl) return null;
+
+  const handleShare = async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Compartir', 'La función de compartir está disponible en dispositivos móviles.');
+      return;
+    }
+    try {
+      // Capturar el contenedor de la imagen + marca de agua
+      const uri = await captureRef(viewRef, {
+        format: 'jpg',
+        quality: 0.9,
+      });
+
+      // Compartir el archivo generado
+      await Sharing.shareAsync(uri, {
+        dialogTitle: 'Compartir Registro de Asistencia',
+        mimeType: 'image/jpeg',
+      });
+    } catch (err: any) {
+      Alert.alert('Error', 'No se pudo generar la imagen con marca de agua: ' + err.message);
+    }
+  };
 
   return (
     <Modal
@@ -42,13 +95,73 @@ export default function ImageViewerModal({
           <Ionicons name="close-circle" size={38} color="#ffffff" />
         </TouchableOpacity>
 
+        {/* Botón de compartir con marca de agua */}
+        {asistenciaInfo && (
+          <TouchableOpacity 
+            style={styles.shareButton} 
+            onPress={handleShare} 
+            activeOpacity={0.7}
+          >
+            <Ionicons name="share-social-outline" size={20} color="#000000" />
+            <Text style={styles.shareButtonText}>Compartir con Marca</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Imagen a pantalla completa */}
         <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.image}
-            resizeMode="contain"
-          />
+          {asistenciaInfo ? (
+            <View 
+              ref={viewRef} 
+              style={styles.captureContainer}
+              collapsable={false}
+            >
+              <Image
+                source={{ uri: imageUrl }}
+                style={styles.image}
+                resizeMode="cover"
+              />
+              <View style={styles.watermarkOverlay}>
+                {/* Info Izquierda */}
+                <View style={styles.watermarkLeftCol}>
+                  <View style={styles.watermarkTimeDateRow}>
+                    <Text style={styles.watermarkTimeText}>
+                      {asistenciaInfo.hora.substring(0, 5)}
+                    </Text>
+                    <View style={styles.watermarkVerticalLine} />
+                    <View style={styles.watermarkDateCol}>
+                      <Text style={styles.watermarkDateText}>
+                        {formatFecha(asistenciaInfo.fecha)}
+                      </Text>
+                      <Text style={styles.watermarkDayText}>
+                        {asistenciaInfo.tipo.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.watermarkAddressText} numberOfLines={3}>
+                    {asistenciaInfo.direccion}
+                  </Text>
+                  <Text style={styles.watermarkEmployeeText}>
+                    👤 {asistenciaInfo.empleadoNombre}
+                  </Text>
+                </View>
+
+                {/* Mapa Derecha */}
+                <View style={styles.watermarkMapContainer}>
+                  <Image
+                    source={{ uri: getStaticMapUrl(asistenciaInfo.lat, asistenciaInfo.lng) }}
+                    style={styles.watermarkMap}
+                    resizeMode="cover"
+                  />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+          )}
         </View>
       </SafeAreaView>
     </Modal>
@@ -69,25 +182,131 @@ const styles = StyleSheet.create({
   closeButton: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 50 : 25,
-    right: 20,
+    left: 20,
     zIndex: 999,
     padding: 10,
-    // Estilo sutil para que resalte en fondos claros si la imagen es blanca
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.5,
     shadowRadius: 4,
     elevation: 5,
   },
+  shareButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 25,
+    right: 20,
+    zIndex: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffc107',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  shareButtonText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   imageContainer: {
     width: '100%',
-    height: '85%',
+    height: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureContainer: {
+    width: width * 0.92,
+    height: height * 0.72,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
   },
   image: {
+    width: '100%',
+    height: '100%',
+  },
+  fullImage: {
     width: width,
     height: '100%',
-    maxWidth: Platform.OS === 'web' ? 800 : undefined, // Limitar tamaño máximo en web para mayor comodidad
+    maxWidth: Platform.OS === 'web' ? 800 : undefined,
+  },
+  watermarkOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  watermarkLeftCol: {
+    flex: 1,
+    gap: 4,
+  },
+  watermarkTimeDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  watermarkTimeText: {
+    color: '#fff',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: -1,
+  },
+  watermarkVerticalLine: {
+    width: 2,
+    height: 32,
+    backgroundColor: '#ffc107',
+    marginHorizontal: 8,
+  },
+  watermarkDateCol: {
+    justifyContent: 'center',
+  },
+  watermarkDateText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  watermarkDayText: {
+    color: '#ffc107',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  watermarkAddressText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
+  watermarkEmployeeText: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  watermarkMapContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+    backgroundColor: '#eee',
+  },
+  watermarkMap: {
+    width: '100%',
+    height: '100%',
   },
 });

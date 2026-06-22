@@ -72,6 +72,15 @@ export default function EmpleadoDashboard() {
   const [checadorResultMsg, setChecadorResultMsg] = useState('');
   const [checadorResultType, setChecadorResultType] = useState<'entrada' | 'salida'>('entrada');
   const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
+  const [selectedAsistenciaInfo, setSelectedAsistenciaInfo] = useState<{
+    fecha: string;
+    hora: string;
+    direccion: string;
+    lat: number;
+    lng: number;
+    empleadoNombre: string;
+    tipo: 'Entrada' | 'Salida';
+  } | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const dateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -730,30 +739,13 @@ export default function EmpleadoDashboard() {
                 </View>
 
                 {/* Lado Derecho: Mapa */}
-                {currentLocation && Platform.OS !== 'web' ? (
+                {currentLocation ? (
                   <View style={styles.watermarkMapContainer}>
-                    <MapView
+                    <Image
+                      source={{ uri: `https://staticmap.openstreetmap.de/staticmap.php?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${currentLocation.lat},${currentLocation.lng},red-pushpin` }}
                       style={styles.watermarkMapView}
-                      region={{
-                        latitude: currentLocation.lat,
-                        longitude: currentLocation.lng,
-                        latitudeDelta: 0.003,
-                        longitudeDelta: 0.003,
-                      }}
-                      liteMode={true}
-                      scrollEnabled={false}
-                      zoomEnabled={false}
-                      rotateEnabled={false}
-                      pitchEnabled={false}
-                    >
-                      <Marker
-                        coordinate={{
-                          latitude: currentLocation.lat,
-                          longitude: currentLocation.lng,
-                        }}
-                        pinColor="#007bff"
-                      />
-                    </MapView>
+                      resizeMode="cover"
+                    />
                   </View>
                 ) : (
                   <View style={styles.watermarkMapPlaceholder}>
@@ -796,9 +788,25 @@ export default function EmpleadoDashboard() {
               </Text>
 
               {capturedPhotoUri && (
-                <View style={styles.resultPhotoContainer}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setActivePreviewUrl(capturedPhotoUri);
+                    setSelectedAsistenciaInfo({
+                      fecha: new Date().toISOString().split('T')[0],
+                      hora: formatChecadorTime(new Date()),
+                      direccion: currentAddress,
+                      lat: currentLocation?.lat || 0,
+                      lng: currentLocation?.lng || 0,
+                      empleadoNombre: user?.nombre || 'Empleado',
+                      tipo: checadorResultType === 'entrada' ? 'Entrada' : 'Salida',
+                    });
+                    setViewerVisible(true);
+                  }}
+                  style={styles.resultPhotoContainer}
+                >
                   <Image source={{ uri: capturedPhotoUri }} style={styles.resultPhoto} resizeMode="cover" />
-                </View>
+                </TouchableOpacity>
               )}
 
               <View style={styles.resultInfoRow}>
@@ -1101,9 +1109,11 @@ export default function EmpleadoDashboard() {
       <ImageViewerModal
         visible={viewerVisible}
         imageUrl={activePreviewUrl}
+        asistenciaInfo={selectedAsistenciaInfo}
         onClose={() => {
           setViewerVisible(false);
           setActivePreviewUrl(null);
+          setSelectedAsistenciaInfo(null);
         }}
       />
     </SafeAreaView>

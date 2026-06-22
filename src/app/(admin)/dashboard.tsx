@@ -89,6 +89,15 @@ export default function AdminDashboard() {
   const [isLoadingAsistencias, setIsLoadingAsistencias] = useState(false);
   const [asistenciaPreviewUrl, setAsistenciaPreviewUrl] = useState<string | null>(null);
   const [asistenciaViewerVisible, setAsistenciaViewerVisible] = useState(false);
+  const [selectedAsistenciaInfo, setSelectedAsistenciaInfo] = useState<{
+    fecha: string;
+    hora: string;
+    direccion: string;
+    lat: number;
+    lng: number;
+    empleadoNombre: string;
+    tipo: 'Entrada' | 'Salida';
+  } | null>(null);
 
   const handleOpenProfile = () => {
     if (adminUser) {
@@ -1321,6 +1330,15 @@ export default function AdminDashboard() {
                             activeOpacity={0.8}
                             onPress={() => {
                               setAsistenciaPreviewUrl(item.foto_entrada_url!);
+                              setSelectedAsistenciaInfo({
+                                fecha: item.fecha,
+                                hora: item.hora_entrada!,
+                                direccion: item.direccion_entrada || 'Dirección no registrada',
+                                lat: Number(item.latitud_entrada),
+                                lng: Number(item.longitud_entrada),
+                                empleadoNombre: asistenciaEmpleado?.nombre || 'Empleado',
+                                tipo: 'Entrada',
+                              });
                               setAsistenciaViewerVisible(true);
                             }}
                           >
@@ -1367,6 +1385,15 @@ export default function AdminDashboard() {
                             activeOpacity={0.8}
                             onPress={() => {
                               setAsistenciaPreviewUrl(item.foto_salida_url!);
+                              setSelectedAsistenciaInfo({
+                                fecha: item.fecha,
+                                hora: item.hora_salida!,
+                                direccion: item.direccion_salida || 'Dirección no registrada',
+                                lat: Number(item.latitud_salida),
+                                lng: Number(item.longitud_salida),
+                                empleadoNombre: asistenciaEmpleado?.nombre || 'Empleado',
+                                tipo: 'Salida',
+                              });
                               setAsistenciaViewerVisible(true);
                             }}
                           >
@@ -1425,9 +1452,11 @@ export default function AdminDashboard() {
       <ImageViewerModal
         visible={asistenciaViewerVisible}
         imageUrl={asistenciaPreviewUrl}
+        asistenciaInfo={selectedAsistenciaInfo}
         onClose={() => {
           setAsistenciaViewerVisible(false);
           setAsistenciaPreviewUrl(null);
+          setSelectedAsistenciaInfo(null);
         }}
       />
     </SafeAreaView>
