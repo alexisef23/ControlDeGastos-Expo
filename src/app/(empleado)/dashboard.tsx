@@ -621,62 +621,61 @@ export default function EmpleadoDashboard() {
             style={styles.cameraPreview}
             facing="front"
             mode="picture"
-          >
-            {/* Overlay: Marca de Agua */}
-            <SafeAreaView style={styles.cameraOverlay}>
-              {/* Top bar */}
-              <View style={styles.watermarkTop}>
-                <TouchableOpacity onPress={handleCloseCamera} style={styles.cameraCloseBtn}>
-                  <Ionicons name="close" size={28} color="#fff" />
-                </TouchableOpacity>
-                <View style={styles.watermarkBadge}>
-                  <Text style={styles.watermarkBadgeText}>
-                    {registroHoy?.hora_entrada ? '📤 SALIDA' : '📥 ENTRADA'}
+          />
+          {/* Overlay: Marca de Agua */}
+          <SafeAreaView style={styles.cameraOverlay}>
+            {/* Top bar */}
+            <View style={styles.watermarkTop}>
+              <TouchableOpacity onPress={handleCloseCamera} style={styles.cameraCloseBtn}>
+                <Ionicons name="close" size={28} color="#fff" />
+              </TouchableOpacity>
+              <View style={styles.watermarkBadge}>
+                <Text style={styles.watermarkBadgeText}>
+                  {registroHoy?.hora_entrada ? '📤 SALIDA' : '📥 ENTRADA'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bottom watermark info */}
+            <View style={styles.watermarkBottom}>
+              <View style={styles.watermarkInfoCard}>
+                <View style={styles.watermarkRow}>
+                  <Ionicons name="person" size={14} color="#fff" />
+                  <Text style={styles.watermarkText}>{user?.nombre || 'Empleado'}</Text>
+                </View>
+                <View style={styles.watermarkRow}>
+                  <Ionicons name="time" size={14} color="#fff" />
+                  <Text style={styles.watermarkText}>{formatChecadorTime(currentDateTime)}</Text>
+                </View>
+                <View style={styles.watermarkRow}>
+                  <Ionicons name="calendar" size={14} color="#fff" />
+                  <Text style={styles.watermarkText}>{formatChecadorDate(currentDateTime)}</Text>
+                </View>
+                <View style={styles.watermarkRow}>
+                  <Ionicons name="location" size={14} color="#fff" />
+                  <Text style={styles.watermarkText}>
+                    {currentLocation
+                      ? `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`
+                      : 'Obteniendo ubicación...'}
                   </Text>
                 </View>
               </View>
 
-              {/* Bottom watermark info */}
-              <View style={styles.watermarkBottom}>
-                <View style={styles.watermarkInfoCard}>
-                  <View style={styles.watermarkRow}>
-                    <Ionicons name="person" size={14} color="#fff" />
-                    <Text style={styles.watermarkText}>{user?.nombre || 'Empleado'}</Text>
-                  </View>
-                  <View style={styles.watermarkRow}>
-                    <Ionicons name="time" size={14} color="#fff" />
-                    <Text style={styles.watermarkText}>{formatChecadorTime(currentDateTime)}</Text>
-                  </View>
-                  <View style={styles.watermarkRow}>
-                    <Ionicons name="calendar" size={14} color="#fff" />
-                    <Text style={styles.watermarkText}>{formatChecadorDate(currentDateTime)}</Text>
-                  </View>
-                  <View style={styles.watermarkRow}>
-                    <Ionicons name="location" size={14} color="#fff" />
-                    <Text style={styles.watermarkText}>
-                      {currentLocation
-                        ? `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`
-                        : 'Obteniendo ubicación...'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Botón de captura */}
-                <TouchableOpacity
-                  style={styles.captureBtn}
-                  onPress={handleCaptureSelfie}
-                  disabled={isCapturing}
-                  activeOpacity={0.7}
-                >
-                  {isCapturing ? (
-                    <ActivityIndicator size="large" color="#fff" />
-                  ) : (
-                    <View style={styles.captureBtnInner} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </SafeAreaView>
-          </CameraView>
+              {/* Botón de captura */}
+              <TouchableOpacity
+                style={styles.captureBtn}
+                onPress={handleCaptureSelfie}
+                disabled={isCapturing}
+                activeOpacity={0.7}
+              >
+                {isCapturing ? (
+                  <ActivityIndicator size="large" color="#fff" />
+                ) : (
+                  <View style={styles.captureBtnInner} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -1308,7 +1307,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cameraOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'space-between',
   },
   watermarkTop: {

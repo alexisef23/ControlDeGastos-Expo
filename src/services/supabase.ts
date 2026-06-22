@@ -264,7 +264,7 @@ export const AsistenciaService = {
     base64Data: string,
     tipo: 'entrada' | 'salida'
   ): Promise<string> {
-    const fileName = `${empleadoId}/${new Date().toISOString().split('T')[0]}_${tipo}_${Date.now()}.jpg`;
+    const fileName = `asistencias/${empleadoId}/${new Date().toISOString().split('T')[0]}_${tipo}_${Date.now()}.jpg`;
 
     // Convertir base64 a ArrayBuffer
     const binaryStr = atob(base64Data);
@@ -274,7 +274,7 @@ export const AsistenciaService = {
     }
 
     const { error: uploadError } = await supabase.storage
-      .from('asistencias')
+      .from('tickets')
       .upload(fileName, bytes.buffer, {
         contentType: 'image/jpeg',
         upsert: true,
@@ -283,7 +283,7 @@ export const AsistenciaService = {
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
-      .from('asistencias')
+      .from('tickets')
       .getPublicUrl(fileName);
 
     return urlData.publicUrl;
