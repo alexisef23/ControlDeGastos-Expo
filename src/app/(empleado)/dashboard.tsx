@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,13 @@ import {
   Alert,
   Image,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase, Gasto, AuthService, Usuario } from '@/services/supabase';
+import { supabase, Gasto, AuthService, Usuario, Asistencia, AsistenciaService } from '@/services/supabase';
 import { SyncService, OfflineGastoItem } from '@/services/sync';
 import ExpenseCard from '@/components/ExpenseCard';
 import CustomButton from '@/components/CustomButton';
@@ -24,6 +25,10 @@ import CustomInput from '@/components/CustomInput';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal from '@/components/ImageViewerModal';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Location from 'expo-location';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function EmpleadoDashboard() {
   const router = useRouter();
@@ -52,6 +57,143 @@ export default function EmpleadoDashboard() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profilePassword, setProfilePassword] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // --- Auto-Checador ---
+  const [checadorInstructionVisible, setChecadorInstructionVisible] = useState(false);
+  const [checadorCameraVisible, setChecadorCameraVisible] = useState(false);
+  const [checadorResultVisible, setChecadorResultVisible] = useState(false);
+  const [registroHoy, setRegistroHoy] = useState<Asistencia | null>(null);
+  const [isLoadingChecador, setIsLoadingChecador] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const [checadorResultMsg, setChecadorResultMsg] = useState('');
+  const [checadorResultType, setChecadorResultType] = useState<'entrada' | 'salida'>('entrada');
+  const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const dateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // --- Checador: Lógica ---
+  const handleOpenChecador = async () => {
+    if (!user) return;
+    setIsLoadingChecador(true);
+    try {
+      const registro = await AsistenciaService.getRegistroHoy(user.id);
+      setRegistroHoy(registro);
+      if (registro && registro.hora_entrada && registro.hora_salida) {
+        Alert.alert(
+          'Turno Completo ✅',
+          `Ya registraste tu entrada (${registro.hora_entrada?.substring(0,5)}) y salida (${registro.hora_salida?.substring(0,5)}) el día de hoy.`,
+        );
+        return;
+      }
+      setChecadorInstructionVisible(true);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo verificar tu asistencia.');
+    } finally {
+      setIsLoadingChecador(false);
+    }
+  };
+
+  const handleStartCamera = async () => {
+    setChecadorInstructionVisible(false);
+
+    // Pedir permiso de cámara
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) {
+        Alert.alert('Permisos', 'Se necesita acceso a la cámara para el checador.');
+        return;
+      }
+    }
+
+    // Pedir permiso de ubicación
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permisos', 'Se necesita acceso a la ubicación para registrar la asistencia.');
+      return;
+    }
+
+    // Obtener ubicación
+    try {
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+    } catch {
+      setCurrentLocation(null);
+    }
+
+    // Iniciar reloj en tiempo real
+    setCurrentDateTime(new Date());
+    dateIntervalRef.current = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+
+    setChecadorCameraVisible(true);
+  };
+
+  const handleCaptureSelfie = async () => {
+    if (!cameraRef.current || isCapturing || !user) return;
+    setIsCapturing(true);
+
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+        base64: true,
+        shutterSound: true,
+      });
+
+      if (!photo?.base64) throw new Error('No se pudo capturar la foto.');
+
+      // Detener reloj
+      if (dateIntervalRef.current) clearInterval(dateIntervalRef.current);
+      setChecadorCameraVisible(false);
+
+      // Subir foto
+      const tipoRegistro = registroHoy?.hora_entrada ? 'salida' : 'entrada';
+      const fotoUrl = await AsistenciaService.subirFotoAsistencia(user.id, photo.base64, tipoRegistro);
+
+      const lat = currentLocation?.lat || 0;
+      const lng = currentLocation?.lng || 0;
+
+      if (tipoRegistro === 'entrada') {
+        await AsistenciaService.registrarEntrada(user.id, fotoUrl, lat, lng);
+        setChecadorResultMsg('Entrada registrada correctamente');
+      } else {
+        await AsistenciaService.registrarSalida(registroHoy!.id, fotoUrl, lat, lng);
+        setChecadorResultMsg('Salida registrada correctamente');
+      }
+
+      setCapturedPhotoUri(photo.uri);
+      setChecadorResultType(tipoRegistro);
+      setChecadorResultVisible(true);
+    } catch (err: any) {
+      Alert.alert('Error al registrar', err.message || 'No se pudo procesar la asistencia.');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const handleCloseCamera = () => {
+    if (dateIntervalRef.current) clearInterval(dateIntervalRef.current);
+    setChecadorCameraVisible(false);
+  };
+
+  const handleCloseResult = () => {
+    setChecadorResultVisible(false);
+    setCapturedPhotoUri(null);
+    setChecadorResultMsg('');
+  };
+
+  const formatChecadorTime = (date: Date) => {
+    return date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  };
+
+  const formatChecadorDate = (date: Date) => {
+    return date.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
 
   const handleOpenProfile = () => {
     if (user) {
@@ -393,6 +535,19 @@ export default function EmpleadoDashboard() {
 
       {/* Floating Action Buttons */}
       <View style={styles.fabContainer}>
+        {/* Auto-Checador */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleOpenChecador}
+          disabled={isLoadingChecador}
+          style={[styles.fabSecondary, { backgroundColor: themeColors.success }]}
+        >
+          {isLoadingChecador ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Ionicons name="finger-print" size={22} color="#ffffff" />
+          )}
+        </TouchableOpacity>
         {/* Registrar Gasto */}
         <TouchableOpacity
           activeOpacity={0.8}
@@ -402,6 +557,188 @@ export default function EmpleadoDashboard() {
           <Ionicons name="receipt" size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
+
+      {/* ========== MODAL: Instrucciones del Checador ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={checadorInstructionVisible}
+        onRequestClose={() => setChecadorInstructionVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '55%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>Auto-Checador</Text>
+              <TouchableOpacity onPress={() => setChecadorInstructionVisible(false)}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={[styles.modalScroll, { alignItems: 'center', paddingTop: Spacing.three }]}>
+              <View style={[styles.checadorIconCircle, { backgroundColor: themeColors.success + '15' }]}>
+                <Ionicons name="camera" size={48} color={themeColors.success} />
+              </View>
+
+              <Text style={[styles.checadorTitle, { color: themeColors.text }]}>
+                {registroHoy?.hora_entrada ? 'Registrar Salida' : 'Registrar Entrada'}
+              </Text>
+
+              <Text style={[styles.checadorDesc, { color: themeColors.textSecondary }]}>
+                Se tomará una selfie con la cámara frontal para registrar tu asistencia. También se capturará tu ubicación como verificación.
+              </Text>
+
+              {registroHoy?.hora_entrada && (
+                <View style={[styles.checadorStatusCard, { backgroundColor: themeColors.success + '10', borderColor: themeColors.success }]}>
+                  <Ionicons name="checkmark-circle" size={20} color={themeColors.success} />
+                  <Text style={[styles.checadorStatusText, { color: themeColors.success }]}>
+                    Entrada registrada a las {registroHoy.hora_entrada?.substring(0, 5)}
+                  </Text>
+                </View>
+              )}
+
+              <CustomButton
+                title={registroHoy?.hora_entrada ? 'Registrar Salida' : 'Registrar Entrada'}
+                onPress={handleStartCamera}
+                variant="success"
+                style={{ width: '100%', marginTop: Spacing.three }}
+                icon={<Ionicons name="camera-outline" size={20} color="#fff" style={{ marginRight: 8 }} />}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL: Cámara con Marca de Agua ========== */}
+      <Modal
+        animationType="fade"
+        transparent={false}
+        visible={checadorCameraVisible}
+        onRequestClose={handleCloseCamera}
+      >
+        <View style={styles.cameraContainer}>
+          <CameraView
+            ref={cameraRef}
+            style={styles.cameraPreview}
+            facing="front"
+            mode="picture"
+          >
+            {/* Overlay: Marca de Agua */}
+            <SafeAreaView style={styles.cameraOverlay}>
+              {/* Top bar */}
+              <View style={styles.watermarkTop}>
+                <TouchableOpacity onPress={handleCloseCamera} style={styles.cameraCloseBtn}>
+                  <Ionicons name="close" size={28} color="#fff" />
+                </TouchableOpacity>
+                <View style={styles.watermarkBadge}>
+                  <Text style={styles.watermarkBadgeText}>
+                    {registroHoy?.hora_entrada ? '📤 SALIDA' : '📥 ENTRADA'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Bottom watermark info */}
+              <View style={styles.watermarkBottom}>
+                <View style={styles.watermarkInfoCard}>
+                  <View style={styles.watermarkRow}>
+                    <Ionicons name="person" size={14} color="#fff" />
+                    <Text style={styles.watermarkText}>{user?.nombre || 'Empleado'}</Text>
+                  </View>
+                  <View style={styles.watermarkRow}>
+                    <Ionicons name="time" size={14} color="#fff" />
+                    <Text style={styles.watermarkText}>{formatChecadorTime(currentDateTime)}</Text>
+                  </View>
+                  <View style={styles.watermarkRow}>
+                    <Ionicons name="calendar" size={14} color="#fff" />
+                    <Text style={styles.watermarkText}>{formatChecadorDate(currentDateTime)}</Text>
+                  </View>
+                  <View style={styles.watermarkRow}>
+                    <Ionicons name="location" size={14} color="#fff" />
+                    <Text style={styles.watermarkText}>
+                      {currentLocation
+                        ? `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`
+                        : 'Obteniendo ubicación...'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Botón de captura */}
+                <TouchableOpacity
+                  style={styles.captureBtn}
+                  onPress={handleCaptureSelfie}
+                  disabled={isCapturing}
+                  activeOpacity={0.7}
+                >
+                  {isCapturing ? (
+                    <ActivityIndicator size="large" color="#fff" />
+                  ) : (
+                    <View style={styles.captureBtnInner} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </SafeAreaView>
+          </CameraView>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL: Resultado del Checador ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={checadorResultVisible}
+        onRequestClose={handleCloseResult}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '60%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>Asistencia Registrada</Text>
+              <TouchableOpacity onPress={handleCloseResult}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={[styles.modalScroll, { alignItems: 'center' }]}>
+              <View style={[styles.checadorIconCircle, { backgroundColor: themeColors.success + '15' }]}>
+                <Ionicons name="checkmark-circle" size={56} color={themeColors.success} />
+              </View>
+
+              <Text style={[styles.checadorTitle, { color: themeColors.success }]}>
+                {checadorResultType === 'entrada' ? '📥 Entrada Registrada' : '📤 Salida Registrada'}
+              </Text>
+              <Text style={[styles.checadorDesc, { color: themeColors.textSecondary }]}>
+                {checadorResultMsg}
+              </Text>
+
+              {capturedPhotoUri && (
+                <View style={styles.resultPhotoContainer}>
+                  <Image source={{ uri: capturedPhotoUri }} style={styles.resultPhoto} resizeMode="cover" />
+                </View>
+              )}
+
+              <View style={styles.resultInfoRow}>
+                <Ionicons name="time-outline" size={18} color={themeColors.textSecondary} />
+                <Text style={[styles.resultInfoText, { color: themeColors.text }]}>
+                  {formatChecadorTime(new Date())}
+                </Text>
+              </View>
+              {currentLocation && (
+                <View style={styles.resultInfoRow}>
+                  <Ionicons name="location-outline" size={18} color={themeColors.textSecondary} />
+                  <Text style={[styles.resultInfoText, { color: themeColors.text }]}>
+                    {currentLocation.lat.toFixed(6)}, {currentLocation.lng.toFixed(6)}
+                  </Text>
+                </View>
+              )}
+
+              <CustomButton
+                title="Cerrar"
+                onPress={handleCloseResult}
+                variant="primary"
+                style={{ width: '100%', marginTop: Spacing.four }}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal de Detalle */}
       <Modal
@@ -925,5 +1262,143 @@ const styles = StyleSheet.create({
   invoiceLinkText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  // --- Auto-Checador Styles ---
+  checadorIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.three,
+  },
+  checadorTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: Spacing.one,
+  },
+  checadorDesc: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: Spacing.three,
+    marginBottom: Spacing.two,
+  },
+  checadorStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    padding: Spacing.two,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    width: '100%',
+    marginTop: Spacing.one,
+  },
+  checadorStatusText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  // Camera
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  cameraPreview: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  watermarkTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+  },
+  cameraCloseBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  watermarkBadge: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: BorderRadius.pill,
+  },
+  watermarkBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  watermarkBottom: {
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.four,
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  watermarkInfoCard: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: BorderRadius.medium,
+    padding: Spacing.two,
+    gap: 6,
+    width: '100%',
+  },
+  watermarkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  watermarkText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  captureBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 5,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  captureBtnInner: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#fff',
+  },
+  // Result
+  resultPhotoContainer: {
+    width: 180,
+    height: 180,
+    borderRadius: BorderRadius.large,
+    overflow: 'hidden',
+    marginVertical: Spacing.three,
+    borderWidth: 3,
+    borderColor: '#4caf50',
+  },
+  resultPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  resultInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    marginBottom: Spacing.one,
+  },
+  resultInfoText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

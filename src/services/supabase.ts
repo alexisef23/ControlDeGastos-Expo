@@ -147,3 +147,145 @@ export const AuthService = {
     return null;
   }
 };
+
+export interface Asistencia {
+  id: string;
+  empleado_id: string;
+  fecha: string; // YYYY-MM-DD
+  hora_entrada?: string | null;
+  foto_entrada_url?: string | null;
+  latitud_entrada?: number | null;
+  longitud_entrada?: number | null;
+  hora_salida?: string | null;
+  foto_salida_url?: string | null;
+  latitud_salida?: number | null;
+  longitud_salida?: number | null;
+  creado_en?: string;
+}
+
+/**
+ * Servicio de Asistencias (Auto-Checador)
+ */
+export const AsistenciaService = {
+  /**
+   * Obtiene el registro de asistencia de hoy para un empleado.
+   */
+  async getRegistroHoy(empleadoId: string): Promise<Asistencia | null> {
+    const hoy = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const { data, error } = await supabase
+      .from('asistencias')
+      .select('*')
+      .eq('empleado_id', empleadoId)
+      .eq('fecha', hoy)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error al obtener registro de hoy:', error);
+      throw error;
+    }
+    return data as Asistencia | null;
+  },
+
+  /**
+   * Registra la entrada del empleado.
+   */
+  async registrarEntrada(
+    empleadoId: string,
+    fotoUrl: string,
+    latitud: number,
+    longitud: number
+  ): Promise<Asistencia> {
+    const ahora = new Date();
+    const horaStr = ahora.toTimeString().split(' ')[0]; // HH:MM:SS
+
+    const { data, error } = await supabase
+      .from('asistencias')
+      .insert([{
+        empleado_id: empleadoId,
+        hora_entrada: horaStr,
+        foto_entrada_url: fotoUrl,
+        latitud_entrada: latitud,
+        longitud_entrada: longitud,
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Asistencia;
+  },
+
+  /**
+   * Registra la salida del empleado (actualiza el registro existente de hoy).
+   */
+  async registrarSalida(
+    asistenciaId: string,
+    fotoUrl: string,
+    latitud: number,
+    longitud: number
+  ): Promise<Asistencia> {
+    const ahora = new Date();
+    const horaStr = ahora.toTimeString().split(' ')[0];
+
+    const { data, error } = await supabase
+      .from('asistencias')
+      .update({
+        hora_salida: horaStr,
+        foto_salida_url: fotoUrl,
+        latitud_salida: latitud,
+        longitud_salida: longitud,
+      })
+      .eq('id', asistenciaId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Asistencia;
+  },
+
+  /**
+   * Obtiene el historial de asistencia de un empleado (para vista de admin).
+   */
+  async getHistorialEmpleado(empleadoId: string): Promise<Asistencia[]> {
+    const { data, error } = await supabase
+      .from('asistencias')
+      .select('*')
+      .eq('empleado_id', empleadoId)
+      .order('fecha', { ascending: false });
+
+    if (error) throw error;
+    return (data || []) as Asistencia[];
+  },
+
+  /**
+   * Sube una foto de asistencia a Supabase Storage.
+   */
+  async subirFotoAsistencia(
+    empleadoId: string,
+    base64Data: string,
+    tipo: 'entrada' | 'salida'
+  ): Promise<string> {
+    const fileName = `${empleadoId}/${new Date().toISOString().split('T')[0]}_${tipo}_${Date.now()}.jpg`;
+
+    // Convertir base64 a ArrayBuffer
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from('asistencias')
+      .upload(fileName, bytes.buffer, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from('asistencias')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  },
+};

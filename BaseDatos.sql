@@ -89,3 +89,20 @@ CREATE TABLE public.evidencias (
   CONSTRAINT evidencias_pkey PRIMARY KEY (id),
   CONSTRAINT evidencias_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
 );
+CREATE TABLE public.asistencias (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  empleado_id uuid NOT NULL,
+  fecha date NOT NULL DEFAULT CURRENT_DATE,
+  hora_entrada time with time zone,
+  foto_entrada_url text,
+  latitud_entrada numeric,
+  longitud_entrada numeric,
+  hora_salida time with time zone,
+  foto_salida_url text,
+  latitud_salida numeric,
+  longitud_salida numeric,
+  creado_en timestamp with time zone DEFAULT now(),
+  CONSTRAINT asistencias_pkey PRIMARY KEY (id),
+  CONSTRAINT asistencias_empleado_id_fkey FOREIGN KEY (empleado_id) REFERENCES public.usuarios(id)
+);
+CREATE INDEX idx_asistencias_empleado_fecha ON public.asistencias(empleado_id, fecha);

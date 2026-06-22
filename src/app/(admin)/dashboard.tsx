@@ -16,7 +16,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase, Gasto, AuthService, Usuario } from '@/services/supabase';
+import { supabase, Gasto, AuthService, Usuario, Asistencia, AsistenciaService } from '@/services/supabase';
 import { ReportGenerator } from '@/utils/reportGenerator';
 import ExpenseCard from '@/components/ExpenseCard';
 import CustomButton from '@/components/CustomButton';
@@ -80,6 +80,14 @@ export default function AdminDashboard() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profilePassword, setProfilePassword] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Historial de Asistencia
+  const [asistenciaModalVisible, setAsistenciaModalVisible] = useState(false);
+  const [asistenciaEmpleado, setAsistenciaEmpleado] = useState<Usuario | null>(null);
+  const [asistencias, setAsistencias] = useState<Asistencia[]>([]);
+  const [isLoadingAsistencias, setIsLoadingAsistencias] = useState(false);
+  const [asistenciaPreviewUrl, setAsistenciaPreviewUrl] = useState<string | null>(null);
+  const [asistenciaViewerVisible, setAsistenciaViewerVisible] = useState(false);
 
   const handleOpenProfile = () => {
     if (adminUser) {
@@ -372,6 +380,30 @@ export default function AdminDashboard() {
     );
   };
 
+  // Ver Historial de Asistencia de un Empleado
+  const handleOpenAsistencia = async (empleado: Usuario) => {
+    setAsistenciaEmpleado(empleado);
+    setAsistenciaModalVisible(true);
+    setIsLoadingAsistencias(true);
+    try {
+      const historial = await AsistenciaService.getHistorialEmpleado(empleado.id);
+      setAsistencias(historial);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo cargar el historial de asistencia.');
+    } finally {
+      setIsLoadingAsistencias(false);
+    }
+  };
+
+  const formatAsistenciaFecha = (fecha: string) => {
+    const parts = fecha.split('-');
+    if (parts.length === 3) {
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      return d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return fecha;
+  };
+
   // Exportar reportes
   const handleExportPDF = async () => {
     try {
@@ -643,6 +675,9 @@ export default function AdminDashboard() {
                       </Text>
                     </View>
                     <View style={styles.userCardButtons}>
+                      <TouchableOpacity onPress={() => handleOpenAsistencia(item)} style={styles.userRowBtn}>
+                        <Ionicons name="time-outline" size={18} color={themeColors.success} />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={() => handleOpenEditUser(item)} style={styles.userRowBtn}>
                         <Ionicons name="create-outline" size={18} color={themeColors.accent} />
                       </TouchableOpacity>
@@ -1217,6 +1252,142 @@ export default function AdminDashboard() {
           setActivePreviewUrl(null);
         }}
       />
+
+      {/* ========== MODAL: Historial de Asistencia ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={asistenciaModalVisible}
+        onRequestClose={() => {
+          setAsistenciaModalVisible(false);
+          setAsistenciaEmpleado(null);
+          setAsistencias([]);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '85%' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { color: themeColors.text }]}>Historial de Asistencia</Text>
+                {asistenciaEmpleado && (
+                  <Text style={{ color: themeColors.textSecondary, fontSize: 13, marginTop: 2 }}>
+                    {asistenciaEmpleado.nombre}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => {
+                setAsistenciaModalVisible(false);
+                setAsistenciaEmpleado(null);
+                setAsistencias([]);
+              }}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {isLoadingAsistencias ? (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color={themeColors.accent} />
+                <Text style={{ color: themeColors.textSecondary, marginTop: Spacing.one }}>Cargando historial...</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={asistencias}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={{ paddingBottom: Spacing.seven }}
+                renderItem={({ item }) => (
+                  <View style={[styles.asistenciaCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                    <Text style={[styles.asistenciaFecha, { color: themeColors.text }]}>
+                      📅 {formatAsistenciaFecha(item.fecha)}
+                    </Text>
+                    <View style={styles.asistenciaRow}>
+                      {/* Entrada */}
+                      <View style={styles.asistenciaBlock}>
+                        <Text style={[styles.asistenciaBlockLabel, { color: themeColors.success }]}>📥 Entrada</Text>
+                        {item.foto_entrada_url ? (
+                          <TouchableOpacity
+                            style={styles.asistenciaThumb}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              setAsistenciaPreviewUrl(item.foto_entrada_url!);
+                              setAsistenciaViewerVisible(true);
+                            }}
+                          >
+                            <Image source={{ uri: item.foto_entrada_url }} style={styles.asistenciaThumbImg} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={[styles.asistenciaNoImg, { backgroundColor: themeColors.backgroundSelected }]}>
+                            <Ionicons name="image-outline" size={24} color={themeColors.textSecondary} />
+                          </View>
+                        )}
+                        <Text style={[styles.asistenciaHora, { color: themeColors.text }]}>
+                          {item.hora_entrada?.substring(0, 5) || '--:--'}
+                        </Text>
+                        {item.latitud_entrada != null && (
+                          <Text style={[styles.asistenciaCoords, { color: themeColors.textSecondary }]}>
+                            📍 {Number(item.latitud_entrada).toFixed(4)}, {Number(item.longitud_entrada).toFixed(4)}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Salida */}
+                      <View style={styles.asistenciaBlock}>
+                        <Text style={[styles.asistenciaBlockLabel, { color: item.hora_salida ? themeColors.accent : themeColors.warning }]}>
+                          📤 Salida
+                        </Text>
+                        {item.foto_salida_url ? (
+                          <TouchableOpacity
+                            style={styles.asistenciaThumb}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              setAsistenciaPreviewUrl(item.foto_salida_url!);
+                              setAsistenciaViewerVisible(true);
+                            }}
+                          >
+                            <Image source={{ uri: item.foto_salida_url }} style={styles.asistenciaThumbImg} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={[styles.asistenciaNoImg, { backgroundColor: themeColors.backgroundSelected }]}>
+                            <Ionicons name={item.hora_salida ? 'image-outline' : 'hourglass-outline'} size={24} color={themeColors.textSecondary} />
+                            {!item.hora_salida && (
+                              <Text style={{ fontSize: 9, color: themeColors.warning, fontWeight: '700', marginTop: 2 }}>Pendiente</Text>
+                            )}
+                          </View>
+                        )}
+                        <Text style={[styles.asistenciaHora, { color: item.hora_salida ? themeColors.text : themeColors.warning }]}>
+                          {item.hora_salida?.substring(0, 5) || 'Pendiente'}
+                        </Text>
+                        {item.latitud_salida != null && (
+                          <Text style={[styles.asistenciaCoords, { color: themeColors.textSecondary }]}>
+                            📍 {Number(item.latitud_salida).toFixed(4)}, {Number(item.longitud_salida).toFixed(4)}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="calendar-outline" size={48} color={themeColors.textSecondary} />
+                    <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
+                      No hay registros de asistencia para este empleado.
+                    </Text>
+                  </View>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Viewer for Attendance Photos */}
+      <ImageViewerModal
+        visible={asistenciaViewerVisible}
+        imageUrl={asistenciaPreviewUrl}
+        onClose={() => {
+          setAsistenciaViewerVisible(false);
+          setAsistenciaPreviewUrl(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1570,5 +1741,57 @@ const styles = StyleSheet.create({
   invoiceLinkText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  // --- Asistencia Styles ---
+  asistenciaCard: {
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    padding: Spacing.three,
+    marginBottom: Spacing.two,
+  },
+  asistenciaFecha: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: Spacing.two,
+  },
+  asistenciaRow: {
+    flexDirection: 'row',
+    gap: Spacing.three,
+  },
+  asistenciaBlock: {
+    flex: 1,
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  asistenciaBlockLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  asistenciaThumb: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: BorderRadius.medium,
+    overflow: 'hidden',
+  },
+  asistenciaThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  asistenciaNoImg: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: BorderRadius.medium,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  asistenciaHora: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  asistenciaCoords: {
+    fontSize: 10,
+    fontWeight: '500',
   },
 });
