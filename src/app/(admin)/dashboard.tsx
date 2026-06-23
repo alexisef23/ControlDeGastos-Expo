@@ -531,6 +531,16 @@ export default function AdminDashboard() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          onPress={() => router.push('/(admin)/inventario' as any)}
+          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+        >
+          <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.warning + '15' }]}>
+            <Ionicons name="cube-sharp" size={18} color={themeColors.warning} />
+          </View>
+          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Inventario</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           onPress={() => setReportsModalVisible(true)}
           style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
         >
@@ -1748,12 +1758,14 @@ const styles = StyleSheet.create({
   },
   quickActionsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
     marginBottom: Spacing.three,
   },
   quickActionBtn: {
     flex: 1,
+    minWidth: 65,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
