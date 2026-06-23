@@ -270,28 +270,55 @@ export const AsistenciaService = {
     base64Data: string,
     tipo: 'entrada' | 'salida'
   ): Promise<string> {
+    console.log('[Supabase Storage] Iniciando subirFotoAsistencia...');
     const fileName = `asistencias/${empleadoId}/${new Date().toISOString().split('T')[0]}_${tipo}_${Date.now()}.jpg`;
+    console.log('[Supabase Storage] Nombre de archivo generado:', fileName);
 
-    // Convertir base64 a ArrayBuffer
-    const binaryStr = atob(base64Data);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
+    let cleanBase64 = base64Data;
+    if (base64Data.includes(';base64,')) {
+      console.log('[Supabase Storage] Detectado prefijo de Data URL, limpiando base64...');
+      const parts = base64Data.split(';base64,');
+      if (parts.length > 1) {
+        cleanBase64 = parts[1];
+        console.log('[Supabase Storage] Limpieza completada. Nueva longitud base64:', cleanBase64.length);
+      }
+    } else {
+      console.log('[Supabase Storage] Base64 recibido parece ser binario puro. Longitud:', base64Data.length);
     }
 
-    const { error: uploadError } = await supabase.storage
-      .from('tickets')
-      .upload(fileName, bytes.buffer, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
+    try {
+      // Convertir base64 a ArrayBuffer
+      console.log('[Supabase Storage] Convirtiendo base64 a ArrayBuffer mediante atob...');
+      const binaryStr = atob(cleanBase64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      console.log('[Supabase Storage] ArrayBuffer creado, bytes:', bytes.length);
 
-    if (uploadError) throw uploadError;
+      console.log('[Supabase Storage] Subiendo archivo al bucket "tickets"...');
+      const { error: uploadError } = await supabase.storage
+        .from('tickets')
+        .upload(fileName, bytes.buffer, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
 
-    const { data: urlData } = supabase.storage
-      .from('tickets')
-      .getPublicUrl(fileName);
+      if (uploadError) {
+        console.error('[Supabase Storage] Error en supabase.storage.upload:', uploadError);
+        throw uploadError;
+      }
+      console.log('[Supabase Storage] Subida completada con éxito.');
 
-    return urlData.publicUrl;
+      const { data: urlData } = supabase.storage
+        .from('tickets')
+        .getPublicUrl(fileName);
+
+      console.log('[Supabase Storage] URL pública obtenida:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (err: any) {
+      console.error('[Supabase Storage] Excepción capturada en subirFotoAsistencia:', err.message || err);
+      throw err;
+    }
   },
 };

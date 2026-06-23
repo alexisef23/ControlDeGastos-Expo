@@ -102,40 +102,68 @@ export default function EmpleadoDashboard() {
 
   // --- Checador: Lógica ---
   const handleOpenChecador = async () => {
-    if (!user) return;
+    console.log('[Checador] Abriendo checador (handleOpenChecador)...');
+    if (!user) {
+      console.error('[Checador] Error: user es nulo o indefinido en handleOpenChecador');
+      if (Platform.OS === 'web') {
+        window.alert('Error: No se ha iniciado sesión correctamente o el usuario no está cargado.');
+      }
+      return;
+    }
+    console.log('[Checador] Usuario logueado:', user.id, user.nombre);
     setIsLoadingChecador(true);
     try {
+      console.log('[Checador] Llamando a getRegistroHoy...');
       const registro = await AsistenciaService.getRegistroHoy(user.id);
+      console.log('[Checador] Resultado de getRegistroHoy:', registro);
       setRegistroHoy(registro);
       if (registro && registro.hora_entrada && registro.hora_salida) {
-        Alert.alert(
-          'Turno Completo ✅',
-          `Ya registraste tu entrada (${registro.hora_entrada?.substring(0,5)}) y salida (${registro.hora_salida?.substring(0,5)}) el día de hoy.`,
-        );
+        console.log('[Checador] Turno completo detectado hoy.');
+        if (Platform.OS === 'web') {
+          window.alert(`Turno Completo ✅\n\nYa registraste tu entrada (${registro.hora_entrada?.substring(0,5)}) y salida (${registro.hora_salida?.substring(0,5)}) el día de hoy.`);
+        } else {
+          Alert.alert(
+            'Turno Completo ✅',
+            `Ya registraste tu entrada (${registro.hora_entrada?.substring(0,5)}) y salida (${registro.hora_salida?.substring(0,5)}) el día de hoy.`,
+          );
+        }
         return;
       }
+      console.log('[Checador] Mostrando modal de instrucciones...');
       setChecadorInstructionVisible(true);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo verificar tu asistencia.');
+      console.error('[Checador] Error en handleOpenChecador:', err.message || err);
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${err.message || 'No se pudo verificar tu asistencia.'}`);
+      } else {
+        Alert.alert('Error', err.message || 'No se pudo verificar tu asistencia.');
+      }
     } finally {
       setIsLoadingChecador(false);
     }
   };
-
   const handleStartCamera = async () => {
+    console.log('[Checador] Iniciando proceso de checador...');
     setChecadorInstructionVisible(false);
 
     // Pedir permiso de cámara
+    console.log('[Checador] Verificando permisos de cámara...');
     if (!cameraPermission?.granted) {
+      console.log('[Checador] Permiso de cámara no concedido, solicitando...');
       const { granted } = await requestCameraPermission();
+      console.log('[Checador] Resultado de permiso de cámara:', granted);
       if (!granted) {
         Alert.alert('Permisos', 'Se necesita acceso a la cámara para el checador.');
         return;
       }
+    } else {
+      console.log('[Checador] Permiso de cámara ya concedido.');
     }
 
     // Pedir permiso de ubicación
+    console.log('[Checador] Solicitando permisos de ubicación...');
     const { status } = await Location.requestForegroundPermissionsAsync();
+    console.log('[Checador] Resultado de permiso de ubicación:', status);
     if (status !== 'granted') {
       Alert.alert('Permisos', 'Se necesita acceso a la ubicación para registrar la asistencia.');
       return;
@@ -143,35 +171,43 @@ export default function EmpleadoDashboard() {
 
     // Obtener ubicación y geocodificación
     try {
+      console.log('[Checador] Obteniendo ubicación actual del GPS...');
       setCurrentAddress('Obteniendo dirección...');
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
       const lat = loc.coords.latitude;
       const lng = loc.coords.longitude;
+      console.log('[Checador] Ubicación obtenida:', lat, lng);
       setCurrentLocation({ lat, lng });
 
       try {
         const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+        console.log('[Checador] Iniciando geocodificación de Google con apiKey:', apiKey ? 'Presente' : 'Ausente');
         if (!apiKey) {
           throw new Error('Google Maps API key not found in environment');
         }
         const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`);
+        console.log('[Checador] Respuesta HTTP de Google Geocoding recibida:', response.status);
         const data = await response.json();
+        console.log('[Checador] Datos de Google Geocoding parseados, status:', data.status);
 
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           const formatted = data.results[0].formatted_address;
+          console.log('[Checador] Dirección formateada de Google:', formatted);
           setCurrentAddress(formatted || 'Dirección no identificada');
         } else {
           throw new Error(data.error_message || `Google Geocoding API status: ${data.status}`);
         }
-      } catch (googleErr) {
-        console.warn('Google Geocoding failed, trying native fallback:', googleErr);
+      } catch (googleErr: any) {
+        console.warn('[Checador] Falló la geocodificación de Google, intentando fallback nativo:', googleErr.message || googleErr);
         try {
+          console.log('[Checador] Ejecutando geocodificación nativa de Expo...');
           const reverse = await Location.reverseGeocodeAsync({
             latitude: lat,
             longitude: lng,
           });
+          console.log('[Checador] Resultado de geocodificación nativa de Expo:', reverse);
 
           if (reverse && reverse.length > 0) {
             const addr = reverse[0];
@@ -198,60 +234,98 @@ export default function EmpleadoDashboard() {
             }
 
             const formatted = parts.join(', ');
+            console.log('[Checador] Dirección formateada nativa:', formatted);
             setCurrentAddress(formatted || 'Dirección no identificada');
           } else {
+            console.log('[Checador] Geocodificación nativa devolvió array vacío.');
             setCurrentAddress('Dirección no disponible');
           }
-        } catch (geoErr) {
-          console.error('Error reverse geocoding native fallback:', geoErr);
+        } catch (geoErr: any) {
+          console.error('[Checador] Error en geocodificación nativa de fallback:', geoErr.message || geoErr);
           setCurrentAddress(`Coordenadas: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
         }
       }
-    } catch (err) {
-      console.error('Error al obtener ubicación:', err);
+    } catch (err: any) {
+      console.error('[Checador] Error crítico al obtener ubicación:', err.message || err);
       setCurrentLocation(null);
       setCurrentAddress('Ubicación no disponible');
     }
 
     // Iniciar reloj en tiempo real
+    console.log('[Checador] Iniciando intervalo de reloj de checador...');
     setCurrentDateTime(new Date());
     dateIntervalRef.current = setInterval(() => {
       setCurrentDateTime(new Date());
     }, 1000);
 
+    console.log('[Checador] Mostrando cámara...');
     setChecadorCameraVisible(true);
   };
 
   const handleCaptureSelfie = async () => {
-    if (!cameraRef.current || isCapturing || !user) return;
+    console.log('[Checador] Presionado botón para capturar selfie...');
+    if (!cameraRef.current) {
+      console.error('[Checador] Error: cameraRef.current es nulo');
+      return;
+    }
+    if (isCapturing) {
+      console.log('[Checador] Omitiendo captura: ya hay una captura en curso...');
+      return;
+    }
+    if (!user) {
+      console.error('[Checador] Error: no hay usuario logueado');
+      return;
+    }
     setIsCapturing(true);
 
     try {
+      console.log('[Checador] Tomando foto con takePictureAsync...');
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
         base64: true,
         shutterSound: true,
       });
+      console.log('[Checador] takePictureAsync finalizado.');
+      console.log('[Checador] Propiedades de photo devueltas:', photo ? Object.keys(photo) : 'null');
+      if (photo) {
+        console.log('[Checador] photo.uri:', photo.uri ? photo.uri.substring(0, 80) + '...' : 'vacío');
+        console.log('[Checador] photo.base64 longitud:', photo.base64 ? photo.base64.length : 'vacío');
+      }
 
-      if (!photo?.base64) throw new Error('No se pudo capturar la foto.');
+      let base64Data = photo?.base64;
+      if (!base64Data && photo?.uri && photo.uri.startsWith('data:image')) {
+        console.log('[Checador] photo.base64 es nulo, pero photo.uri contiene un Data URL base64. Extrayendo...');
+        base64Data = photo.uri;
+      }
+
+      if (!base64Data) {
+        console.error('[Checador] Error: base64Data no pudo ser resuelto de ninguna propiedad.');
+        throw new Error('No se pudo capturar la foto.');
+      }
 
       // Detener reloj
+      console.log('[Checador] Deteniendo intervalo de reloj...');
       if (dateIntervalRef.current) clearInterval(dateIntervalRef.current);
       setChecadorCameraVisible(false);
 
       // Subir foto
       const tipoRegistro = registroHoy?.hora_entrada ? 'salida' : 'entrada';
-      const fotoUrl = await AsistenciaService.subirFotoAsistencia(user.id, photo.base64, tipoRegistro);
+      console.log(`[Checador] Subiendo foto de ${tipoRegistro} a Supabase Storage...`);
+      const fotoUrl = await AsistenciaService.subirFotoAsistencia(user.id, base64Data, tipoRegistro);
+      console.log('[Checador] Foto subida exitosamente, URL pública:', fotoUrl);
 
       const lat = currentLocation?.lat || 0;
       const lng = currentLocation?.lng || 0;
       const addressToSave = currentAddress || 'Ubicación registrada';
+      console.log(`[Checador] Registrando en la base de datos (${tipoRegistro}). Lat: ${lat}, Lng: ${lng}, Dir: ${addressToSave}`);
 
       if (tipoRegistro === 'entrada') {
         await AsistenciaService.registrarEntrada(user.id, fotoUrl, lat, lng, addressToSave);
+        console.log('[Checador] Registro de entrada exitoso en base de datos.');
         setChecadorResultMsg('Entrada registrada correctamente');
       } else {
         await AsistenciaService.registrarSalida(registroHoy!.id, fotoUrl, lat, lng, addressToSave);
+        console.log('[Checador] Registro de salida exitoso en base de datos.');
         setChecadorResultMsg('Salida registrada correctamente');
       }
 
@@ -771,20 +845,22 @@ export default function EmpleadoDashboard() {
                 </View>
 
                 {/* Lado Derecho: Mapa */}
-                {currentLocation ? (
+                {currentLocation && checadorMapUrl ? (
                   <View style={styles.watermarkMapContainer}>
                     <Image
                       source={{
-                        uri: checadorMapUrl || '',
+                        uri: checadorMapUrl,
                       }}
                       onError={() => {
-                        if (currentLocation) {
-                          setChecadorMapUrl(`https://staticmap.openstreetmap.de/staticmap.php?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${currentLocation.lat},${currentLocation.lng},red-pushpin`);
-                        }
+                        setChecadorMapUrl(`https://staticmap.openstreetmap.de/staticmap.php?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${currentLocation.lat},${currentLocation.lng},red-pushpin`);
                       }}
                       style={styles.watermarkMapView}
                       resizeMode="cover"
                     />
+                  </View>
+                ) : currentLocation ? (
+                  <View style={[styles.watermarkMapContainer, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#333' }]}>
+                    <ActivityIndicator size="small" color="#fff" />
                   </View>
                 ) : (
                   <View style={styles.watermarkMapPlaceholder}>

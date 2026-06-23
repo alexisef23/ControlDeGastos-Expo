@@ -10,6 +10,7 @@ import {
   Dimensions,
   Text,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
@@ -68,7 +69,147 @@ export default function ImageViewerModal({
 
   const handleShare = async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Compartir', 'La función de compartir está disponible en dispositivos móviles.');
+      if (!asistenciaInfo) return;
+      try {
+        // En web, podemos dibujar la imagen y la marca en un canvas y descargarla
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('No se pudo crear el contexto del canvas');
+
+        // Cargar la imagen principal
+        const mainImg = new window.Image();
+        if (imageUrl.startsWith('http')) {
+          mainImg.crossOrigin = 'anonymous';
+          // Cache bust to prevent browser cache CORS issues
+          mainImg.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+        } else {
+          mainImg.src = imageUrl;
+        }
+        
+        await new Promise((resolve, reject) => {
+          mainImg.onload = resolve;
+          mainImg.onerror = () => reject(new Error('No se pudo cargar la imagen de la selfie.'));
+        });
+
+        // Definir dimensiones fijas de exportación (ej. 1080x1440 para alta calidad)
+        canvas.width = 1080;
+        canvas.height = 1440;
+
+        // Dibujar imagen de fondo (selfie)
+        // Escalado "cover"
+        const imgRatio = mainImg.width / mainImg.height;
+        const canvasRatio = canvas.width / canvas.height;
+        let drawWidth, drawHeight, drawX, drawY;
+
+        if (imgRatio > canvasRatio) {
+          drawHeight = canvas.height;
+          drawWidth = canvas.height * imgRatio;
+          drawX = (canvas.width - drawWidth) / 2;
+          drawY = 0;
+        } else {
+          drawWidth = canvas.width;
+          drawHeight = canvas.width / imgRatio;
+          drawX = 0;
+          drawY = (canvas.height - drawHeight) / 2;
+        }
+
+        ctx.drawImage(mainImg, drawX, drawY, drawWidth, drawHeight);
+
+        // Dibujar el overlay oscuro al fondo
+        const overlayHeight = 280;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, canvas.height - overlayHeight, canvas.width, overlayHeight);
+
+        // Dibujar texto de la Hora
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 90px sans-serif';
+        const horaStr = asistenciaInfo.hora.substring(0, 5);
+        ctx.fillText(horaStr, 40, canvas.height - overlayHeight + 110);
+        const timeWidth = ctx.measureText(horaStr).width;
+
+        // Dibujar línea vertical amarilla dynamically
+        const lineX = 40 + timeWidth + 15;
+        ctx.fillStyle = '#ffc107';
+        ctx.fillRect(lineX, canvas.height - overlayHeight + 35, 6, 90);
+
+        // Dibujar texto de la Fecha y Tipo dynamically
+        const textX = lineX + 20;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.fillText(formatFecha(asistenciaInfo.fecha), textX, canvas.height - overlayHeight + 70);
+        ctx.fillStyle = '#ffc107';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.fillText(asistenciaInfo.tipo.toUpperCase(), textX, canvas.height - overlayHeight + 110);
+
+        // Dibujar Dirección (multilínea) y Nombre Empleado dynamically to avoid overlap
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px sans-serif';
+        const direccion = asistenciaInfo.direccion;
+        
+        // Función para envolver texto
+        const wrapText = (context: CanvasRenderingContext2D, text: string, x: number, startY: number, maxWidth: number, lineHeight: number): number => {
+          const words = text.split(' ');
+          let line = '';
+          let currentY = startY;
+          for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n] + ' ';
+            const metrics = context.measureText(testLine);
+            const testWidth = metrics.width;
+            if (testWidth > maxWidth && n > 0) {
+              context.fillText(line, x, currentY);
+              line = words[n] + ' ';
+              currentY += lineHeight;
+            } else {
+              line = testLine;
+            }
+          }
+          context.fillText(line, x, currentY);
+          return currentY + lineHeight;
+        };
+
+        const nextY = wrapText(ctx, direccion, 40, canvas.height - overlayHeight + 175, 750, 32);
+
+        // Dibujar Nombre Empleado dynamically based on nextY
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.fillText(`👤 ${asistenciaInfo.empleadoNombre}`, 40, Math.min(nextY, canvas.height - 35));
+
+        // Dibujar el Mapa a la derecha si está disponible
+        // En web usamos OpenStreetMap porque soporta CORS. Google Maps Static API no soporta CORS y mancharía el canvas.
+        const canvasMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${asistenciaInfo.lat},${asistenciaInfo.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${asistenciaInfo.lat},${asistenciaInfo.lng},red-pushpin`;
+        
+        const mapImg = new window.Image();
+        mapImg.crossOrigin = 'anonymous';
+        try {
+          await new Promise((resolve, reject) => {
+            mapImg.onload = resolve;
+            mapImg.onerror = () => reject(new Error('No se pudo cargar la imagen del mapa para compartir.'));
+            mapImg.src = canvasMapUrl + '&t=' + Date.now();
+          });
+          
+          const mapSize = 200;
+          const mapX = canvas.width - mapSize - 40;
+          const mapY = canvas.height - mapSize - 40;
+          
+          // Dibujar borde blanco alrededor del mapa
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 6;
+          ctx.strokeRect(mapX - 3, mapY - 3, mapSize + 6, mapSize + 6);
+          ctx.drawImage(mapImg, mapX, mapY, mapSize, mapSize);
+        } catch (mapErr) {
+          console.error('Error al dibujar mapa en canvas de web:', mapErr);
+        }
+
+        // Convertir canvas a link de descarga
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        const link = document.createElement('a');
+        link.download = `asistencia_${asistenciaInfo.empleadoNombre.replace(/\s+/g, '_')}_${asistenciaInfo.fecha}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (err: any) {
+        console.error('Error generando descarga de marca de agua en web:', err);
+        window.alert('No se pudo generar la imagen con marca de agua en la versión web: ' + err.message);
+      }
       return;
     }
     try {
@@ -158,21 +299,27 @@ export default function ImageViewerModal({
 
                 {/* Mapa Derecha */}
                 <View style={styles.watermarkMapContainer}>
-                  <Image
-                    source={{
-                      uri: mapUrl,
-                      headers: {
-                        'User-Agent': 'PortalInttec/1.0 (soporte@inttec.net)',
-                      },
-                    }}
-                    onError={() => {
-                      if (asistenciaInfo) {
-                        setMapUrl(`https://staticmap.openstreetmap.de/staticmap.php?center=${asistenciaInfo.lat},${asistenciaInfo.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${asistenciaInfo.lat},${asistenciaInfo.lng},red-pushpin`);
-                      }
-                    }}
-                    style={styles.watermarkMap}
-                    resizeMode="cover"
-                  />
+                  {mapUrl ? (
+                    <Image
+                      source={{
+                        uri: mapUrl,
+                        headers: {
+                          'User-Agent': 'PortalInttec/1.0 (soporte@inttec.net)',
+                        },
+                      }}
+                      onError={() => {
+                        if (asistenciaInfo) {
+                          setMapUrl(`https://staticmap.openstreetmap.de/staticmap.php?center=${asistenciaInfo.lat},${asistenciaInfo.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${asistenciaInfo.lat},${asistenciaInfo.lng},red-pushpin`);
+                        }
+                      }}
+                      style={styles.watermarkMap}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#333' }}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  )}
                 </View>
               </View>
             </View>
@@ -242,14 +389,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   captureContainer: {
-    width: width * 0.92,
-    height: height * 0.72,
+    width: Platform.OS === 'web' ? 420 : width * 0.92,
+    height: Platform.OS === 'web' ? 580 : height * 0.72,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#000',
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
   },
   image: {
     width: '100%',
