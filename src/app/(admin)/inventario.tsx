@@ -1,37 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   Modal,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  TextInput,
+  ScrollView,
   Platform,
+  TextInput,
+  useWindowDimensions,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
 import { supabase } from '@/services/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomButton from '@/components/CustomButton';
 import CustomInput from '@/components/CustomInput';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import { GeminiService } from '@/services/gemini';
 
-// Interfaces locales coincidentes con el esquema de base de datos
+// Interfaces locales para concordar con la base de datos
 interface Categoria {
   id: string;
   nombre: string;
-  descripcion?: string;
 }
 
 interface Proveedor {
   id: string;
   nombre: string;
-  rfc?: string;
+  rfc: string;
 }
 
 interface Producto {
@@ -44,101 +46,194 @@ interface Producto {
 }
 
 interface FacturaItemStaging {
-  id: string;
-  nombreFactura: string;
+  id: string; // ID temporal en UI
+  nombreFactura: string; // Nombre del producto según el proveedor
   cantidad: number;
   precioUnitario: number;
-  productoIdSugerido?: string;
+  productoIdSugerido?: string; // ID del producto asociado en catálogo
   esNuevoProducto: boolean;
-  categoriaSeleccionadaId?: string;
+  categoriaSeleccionadaId?: string; // Si es nuevo, categoría asignada
 }
 
-export default function AdminInventario() {
+interface ConsumoItem {
+  id: string;
+  productoId: string;
+  cantidad: number;
+}
+
+export default function InventarioDashboard() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = windowWidth < 600;
   const scheme = useColorScheme();
   const themeColors = Colors[scheme === 'dark' ? 'dark' : 'light'];
 
-  // --- Estados de Datos ---
+  // Tab activa: 'catalogo' | 'ia-import' | 'consumo' | 'categorias'
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'ia-import' | 'consumo' | 'categorias'>('catalogo');
+  
+  // Datos maestros de la DB
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- Estados de Interfaz ---
-  const [activeTab, setActiveTab] = useState<'catalogo' | 'ia-import' | 'categorias'>('catalogo');
+  // Filtros de búsqueda
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
 
-  // --- Estados CRUD manual ---
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Selector Centralizado
+  const [selectorVisible, setSelectorVisible] = useState(false);
+  const [selectorTitle, setSelectorTitle] = useState('');
+  const [selectorOptions, setSelectorOptions] = useState<{ id: string; label: string }[]>([]);
+  const [onSelectOption, setOnSelectOption] = useState<(id: string) => void>(() => {});
+  const [selectorSearch, setSelectorSearch] = useState('');
+
+  // Modales CRUD manual
+  const [crudModalVisible, setCrudModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
   const [formSku, setFormSku] = useState('');
   const [formNombre, setFormNombre] = useState('');
   const [formCategoriaId, setFormCategoriaId] = useState('');
-  const [formStock, setFormStock] = useState(0);
+  const [formStock, setFormStock] = useState('0');
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
-  // --- Estados Gestión Masiva ---
-  const [sourceCatId, setSourceCatId] = useState('');
-  const [destCatId, setDestCatId] = useState('');
-  const [isMovingMassive, setIsMovingMassive] = useState(false);
+  // Creador de Categorías y Proveedores
+  const [newCatNombre, setNewCatNombre] = useState('');
+  const [newCatDesc, setNewCatDesc] = useState('');
+  const [isSavingNewCat, setIsSavingNewCat] = useState(false);
 
-  // --- Estados Staging Facturas IA ---
+  const [newProvNombre, setNewProvNombre] = useState('');
+  const [newProvRfc, setNewProvRfc] = useState('');
+  const [isSavingNewProv, setIsSavingNewProv] = useState(false);
+
+  // Modales de Creador de Categorías y Proveedores
+  const [newCatModalVisible, setNewCatModalVisible] = useState(false);
+  const [newProvModalVisible, setNewProvModalVisible] = useState(false);
+
+  // ID del ítem de staging seleccionado para asociar producto
+  const [activeStagingItemId, setActiveStagingItemId] = useState<string | null>(null);
+
+  // Ajuste rápido de stock por producto
+  const [quickStockAdjustments, setQuickStockAdjustments] = useState<Record<string, string>>({});
+
+  // Flujo Consumo / Salidas de Materiales
+  const [consumoCliente, setConsumoCliente] = useState('');
+  const [consumoItems, setConsumoItems] = useState<ConsumoItem[]>([]);
+  const [isSavingConsumo, setIsSavingConsumo] = useState(false);
+  const [historialConsumo, setHistorialConsumo] = useState<any[]>([]);
+
+
+
+  // Flujo IA (Staging)
   const [selectedProveedorId, setSelectedProveedorId] = useState('');
   const [folioFactura, setFolioFactura] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [stagingItems, setStagingItems] = useState<FacturaItemStaging[]>([]);
-  const [isCommittingIA, setIsCommittingIA] = useState(false);
+  const [isSavingAIImport, setIsSavingAIImport] = useState(false);
 
-  // --- Inicialización y Carga ---
   useEffect(() => {
-    fetchInitialData();
+    loadAllData();
   }, []);
 
-  const fetchInitialData = async () => {
+  const loadAllData = async () => {
     setIsLoading(true);
     try {
-      // Cargar Categorías
-      const { data: catData, error: catErr } = await supabase
-        .from('categorias')
-        .select('*')
-        .order('nombre');
-      if (catErr) throw catErr;
-      setCategorias(catData || []);
+      // Cargar categorías, proveedores, productos e historial de consumo
+      const [catRes, provRes, prodRes, histRes] = await Promise.all([
+        supabase.from('categorias_productos').select('*').order('nombre'),
+        supabase.from('proveedores').select('*').order('nombre'),
+        supabase.from('productos').select('*').order('nombre_oficial'),
+        supabase
+          .from('movimientos_inventario')
+          .select('*, producto:productos(nombre_oficial)')
+          .eq('tipo', 'SALIDA')
+          .order('fecha', { ascending: false })
+          .limit(50),
+      ]);
 
-      // Cargar Proveedores
-      const { data: provData, error: provErr } = await supabase
-        .from('proveedores')
-        .select('*')
-        .order('nombre');
-      if (provErr) throw provErr;
-      setProveedores(provData || []);
+      if (catRes.error) throw catRes.error;
+      if (provRes.error) throw provRes.error;
+      if (prodRes.error) throw prodRes.error;
 
-      // Cargar Productos Activos (Soft Delete = activo true)
-      const { data: prodData, error: prodErr } = await supabase
-        .from('productos')
-        .select('*')
-        .eq('activo', true)
-        .order('nombre_oficial');
-      if (prodErr) throw prodErr;
-      setProductos(prodData || []);
+      setCategorias(catRes.data || []);
+      setProveedores(provRes.data || []);
+      setProductos(prodRes.data || []);
+      setHistorialConsumo(histRes.data || []);
     } catch (err: any) {
       console.error('Error al cargar datos de inventario:', err);
-      Alert.alert('Error', err.message || 'No se pudo cargar la información de inventario.');
+      Alert.alert('Error', err.message || 'No se pudieron recuperar los datos de inventario.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // --- Handlers: CRUD Manual ---
+  // --- Centralized Selectors ---
+  const openCategoryFilter = () => {
+    setSelectorTitle('Filtrar por Categoría');
+    setSelectorSearch('');
+    setSelectorOptions([
+      { id: '', label: 'Todas las Categorías' },
+      ...categorias.map(c => ({ id: c.id, label: c.nombre })),
+    ]);
+    setOnSelectOption(() => (id: string) => {
+      setSelectedCategoryFilter(id);
+    });
+    setSelectorVisible(true);
+  };
+
+  const openProveedorSelector = () => {
+    setSelectorTitle('Seleccionar Proveedor');
+    setSelectorSearch('');
+    setSelectorOptions(
+      proveedores.map(p => ({ id: p.id, label: `${p.nombre} (${p.rfc})` }))
+    );
+    setOnSelectOption(() => (id: string) => {
+      setSelectedProveedorId(id);
+    });
+    setSelectorVisible(true);
+  };
+
+  const openProductSelectorForStaging = (itemId: string) => {
+    setActiveStagingItemId(itemId);
+    setSelectorTitle('Buscar Producto del Catálogo');
+    setSelectorSearch('');
+    setSelectorOptions(
+      productos
+        .filter(p => p.activo)
+        .map(p => ({ id: p.id, label: `${p.nombre_oficial} (${p.sku_interno})` }))
+    );
+    setOnSelectOption(() => (id: string) => {
+      handleUpdateStagingItem(itemId, { productoIdSugerido: id, esNuevoProducto: false });
+    });
+    setSelectorVisible(true);
+  };
+
+
+
+  const openFormCatSelector = () => {
+    setSelectorTitle('Seleccionar Categoría');
+    setSelectorSearch('');
+    setSelectorOptions(
+      categorias.map(c => ({ id: c.id, label: c.nombre }))
+    );
+    setOnSelectOption(() => (id: string) => {
+      setFormCategoriaId(id);
+    });
+    setSelectorVisible(true);
+  };
+
+  const filteredSelectorOptions = selectorOptions.filter(opt =>
+    opt.label.toLowerCase().includes(selectorSearch.toLowerCase())
+  );
+
+  // --- CRUD Manual ---
   const handleOpenCreateModal = () => {
     setEditingProduct(null);
     setFormSku('');
     setFormNombre('');
     setFormCategoriaId(categorias[0]?.id || '');
-    setFormStock(0);
-    setIsModalOpen(true);
+    setFormStock('0');
+    setCrudModalVisible(true);
   };
 
   const handleOpenEditModal = (p: Producto) => {
@@ -146,157 +241,470 @@ export default function AdminInventario() {
     setFormSku(p.sku_interno);
     setFormNombre(p.nombre_oficial);
     setFormCategoriaId(p.categoria_id);
-    setFormStock(p.stock_actual);
-    setIsModalOpen(true);
+    setFormStock(p.stock_actual.toString());
+    setCrudModalVisible(true);
   };
 
   const handleSaveProduct = async () => {
     if (!formSku.trim() || !formNombre.trim() || !formCategoriaId) {
-      Alert.alert('Campos Incompletos', 'Por favor llena todos los campos obligatorios.');
+      Alert.alert('Validación', 'Por favor llena todos los campos obligatorios.');
+      return;
+    }
+
+    const stockNum = parseInt(formStock, 10);
+    if (isNaN(stockNum) || stockNum < 0) {
+      Alert.alert('Validación', 'El stock debe ser un número entero mayor o igual a 0.');
       return;
     }
 
     setIsSavingProduct(true);
     try {
       if (editingProduct) {
-        // Actualizar existente
+        // Editar
         const { error } = await supabase
           .from('productos')
           .update({
             sku_interno: formSku.trim(),
             nombre_oficial: formNombre.trim(),
             categoria_id: formCategoriaId,
-            stock_actual: formStock,
+            stock_actual: stockNum,
           })
           .eq('id', editingProduct.id);
 
         if (error) throw error;
         Alert.alert('Éxito', 'Producto actualizado correctamente.');
       } else {
-        // Crear nuevo
-        const { error } = await supabase
-          .from('productos')
-          .insert([{
-            sku_interno: formSku.trim(),
+        // Crear
+        const { error } = await supabase.from('productos').insert([
+          {
+            sku_interno: formSku.trim().toUpperCase(),
             nombre_oficial: formNombre.trim(),
             categoria_id: formCategoriaId,
-            stock_actual: formStock,
+            stock_actual: stockNum,
             activo: true,
-          }]);
+          },
+        ]);
 
         if (error) throw error;
-        Alert.alert('Éxito', 'Producto registrado correctamente.');
+        Alert.alert('Éxito', 'Producto agregado correctamente.');
       }
-      setIsModalOpen(false);
-      await fetchInitialData();
+
+      setCrudModalVisible(false);
+      await loadAllData();
     } catch (err: any) {
-      Alert.alert('Error al guardar', err.message || 'Ocurrió un problema.');
+      Alert.alert('Error', err.message || 'No se pudo guardar el producto.');
     } finally {
       setIsSavingProduct(false);
     }
   };
 
-  const handleSoftDelete = async (id: string, name: string) => {
-    const performSoftDelete = async () => {
-      try {
-        const { error } = await supabase
-          .from('productos')
-          .update({ activo: false })
-          .eq('id', id);
-
-        if (error) throw error;
-        Alert.alert('Desactivado', 'El producto ha sido desactivado del catálogo.');
-        await fetchInitialData();
-      } catch (err: any) {
-        Alert.alert('Error', err.message || 'No se pudo desactivar el producto.');
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`¿Estás seguro de que deseas desactivar a ${name}?`)) {
-        await performSoftDelete();
-      }
-    } else {
-      Alert.alert('Confirmar Desactivación', `¿Estás seguro de desactivar ${name}?`, [
+  const handleSoftDeleteProduct = (p: Producto) => {
+    Alert.alert(
+      'Confirmar Desactivación',
+      `¿Estás seguro de que deseas desactivar el producto "${p.nombre_oficial}" del catálogo activo?`,
+      [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Desactivar', style: 'destructive', onPress: performSoftDelete },
-      ]);
+        {
+          text: 'Desactivar',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              const { error } = await supabase
+                .from('productos')
+                .update({ activo: false })
+                .eq('id', p.id);
+
+              if (error) throw error;
+              Alert.alert('Éxito', 'Producto desactivado.');
+              await loadAllData();
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'No se pudo desactivar el producto.');
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleQuickAddStock = async (product: Producto) => {
+    const valueStr = quickStockAdjustments[product.id] || '';
+    const toAdd = parseInt(valueStr, 10);
+
+    if (isNaN(toAdd) || toAdd <= 0) {
+      Alert.alert('Validación', 'Por favor ingresa un número entero mayor a 0 para añadir al stock.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const newStock = product.stock_actual + toAdd;
+
+      // 1. Actualizar el producto en Supabase
+      const { error: updateErr } = await supabase
+        .from('productos')
+        .update({ stock_actual: newStock })
+        .eq('id', product.id);
+
+      if (updateErr) throw updateErr;
+
+      // 2. Registrar movimiento de entrada en el historial
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData?.user?.id || null;
+
+      const { error: moveErr } = await supabase
+        .from('movimientos_inventario')
+        .insert([
+          {
+            producto_id: product.id,
+            tipo: 'ENTRADA',
+            cantidad: toAdd,
+            folio_factura: 'AJUSTE_RAPIDO',
+            creado_por: currentUserId,
+          },
+        ]);
+
+      if (moveErr) {
+        console.warn('Ajuste de stock realizado, pero no se pudo registrar el movimiento:', moveErr.message);
+      }
+
+      // Limpiar el input de este producto
+      setQuickStockAdjustments(prev => ({ ...prev, [product.id]: '' }));
+
+      Alert.alert('Éxito', `Se añadieron ${toAdd} unidades a "${product.nombre_oficial}". Stock actual: ${newStock}`);
+      await loadAllData();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo actualizar el stock del producto.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // --- Handlers: Gestión Masiva ---
-  const handleBulkMove = async () => {
-    if (!sourceCatId || !destCatId) {
-      Alert.alert('Error', 'Selecciona la categoría de origen y la de destino.');
-      return;
-    }
-    if (sourceCatId === destCatId) {
-      Alert.alert('Error', 'La categoría de origen y destino no pueden ser iguales.');
+  // --- Crear Categorías y Proveedores de Forma Manual ---
+  const handleCreateCategory = async () => {
+    if (!newCatNombre.trim()) {
+      Alert.alert('Validación', 'Por favor ingresa el nombre de la categoría.');
       return;
     }
 
-    setIsMovingMassive(true);
+    setIsSavingNewCat(true);
     try {
-      const { data, error } = await supabase
-        .from('productos')
-        .update({ categoria_id: destCatId })
-        .eq('categoria_id', sourceCatId)
-        .eq('activo', true);
+      const { error } = await supabase.from('categorias_productos').insert([
+        {
+          nombre: newCatNombre.trim(),
+          descripcion: newCatDesc.trim() || null,
+        },
+      ]);
 
       if (error) throw error;
-      Alert.alert('Éxito', 'Los productos activos se transfirieron correctamente.');
-      setSourceCatId('');
-      setDestCatId('');
-      await fetchInitialData();
+
+      Alert.alert('Éxito', 'Categoría agregada correctamente.');
+      setNewCatNombre('');
+      setNewCatDesc('');
+      setNewCatModalVisible(false);
+      await loadAllData();
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudieron transferir los productos.');
+      Alert.alert('Error', err.message || 'No se pudo guardar la categoría.');
     } finally {
-      setIsMovingMassive(false);
+      setIsSavingNewCat(false);
     }
   };
 
-  // --- Handlers: IA Flow Staging ---
-  const handleSimulateOcr = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      // Mapear simulaciones con items semilla
-      const mockItems: FacturaItemStaging[] = [
+  const handleCreateProveedor = async () => {
+    if (!newProvNombre.trim()) {
+      Alert.alert('Validación', 'Por favor ingresa el nombre del proveedor.');
+      return;
+    }
+
+    const cleanRfc = newProvRfc.trim().toUpperCase();
+    if (cleanRfc && cleanRfc.length !== 12 && cleanRfc.length !== 13) {
+      Alert.alert('Validación', 'El RFC debe tener exactamente 12 o 13 caracteres.');
+      return;
+    }
+
+    setIsSavingNewProv(true);
+    try {
+      const { error } = await supabase.from('proveedores').insert([
         {
-          id: 'ia-1',
-          nombreFactura: 'PANEL SOLAR BIFACIAL RENESOLA 640W LS',
-          cantidad: 20,
-          precioUnitario: 3400,
-          productoIdSugerido: productos.find(p => p.sku_interno === 'SOL-REN-640W-BIF')?.id,
-          esNuevoProducto: false,
+          nombre: newProvNombre.trim(),
+          rfc: cleanRfc || null,
         },
-        {
-          id: 'ia-2',
-          nombreFactura: 'SOLIS INVERTER S6-GR1P6K-S SINGLE PHASE',
-          cantidad: 5,
-          precioUnitario: 14500,
-          productoIdSugerido: productos.find(p => p.sku_interno === 'SOL-SOLIS-6K')?.id,
-          esNuevoProducto: false,
-        },
-        {
-          id: 'ia-3',
-          nombreFactura: 'CABLE FV ROJO CONDUCTORES 4MM2',
-          cantidad: 1000,
-          precioUnitario: 17.8,
-          productoIdSugerido: productos.find(p => p.sku_interno === 'CAB-FV-4MM-R')?.id,
-          esNuevoProducto: false,
-        },
-        {
-          id: 'ia-4',
-          nombreFactura: 'CONDULET LL ALU 3/4 CON TAPA', // Desconocido / Nuevo
-          cantidad: 15,
-          precioUnitario: 110.0,
-          esNuevoProducto: true,
-          categoriaSeleccionadaId: categorias.find(c => c.nombre.includes('Canalización'))?.id || categorias[0]?.id,
-        },
-      ];
-      setStagingItems(mockItems);
+      ]);
+
+      if (error) throw error;
+
+      Alert.alert('Éxito', 'Proveedor agregado correctamente.');
+      setNewProvNombre('');
+      setNewProvRfc('');
+      setNewProvModalVisible(false);
+      await loadAllData();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo guardar el proveedor.');
+    } finally {
+      setIsSavingNewProv(false);
+    }
+  };
+
+  // --- Registrar Consumo de Materiales ---
+  const openProductSelectorForConsumo = () => {
+    setSelectorTitle('Seleccionar Producto para Consumo');
+    setSelectorSearch('');
+    setSelectorOptions(
+      productos
+        .filter(p => p.activo)
+        .map(p => ({
+          id: p.id,
+          label: `${p.nombre_oficial} (${p.sku_interno}) - Stock: ${p.stock_actual}`,
+        }))
+    );
+    setOnSelectOption(() => (id: string) => {
+      setConsumoItems(prev => {
+        const exists = prev.some(item => item.productoId === id);
+        if (exists) {
+          Alert.alert('Información', 'Este producto ya ha sido agregado a la lista de consumo.');
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: `consumo-${Date.now()}-${Math.random().toString(36).substring(3, 8)}`,
+            productoId: id,
+            cantidad: 1,
+          },
+        ];
+      });
+    });
+    setSelectorVisible(true);
+  };
+
+  const handleRemoveConsumoItem = (id: string) => {
+    setConsumoItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleUpdateConsumoItemQty = (id: string, qty: number) => {
+    setConsumoItems(prev =>
+      prev.map(item => (item.id === id ? { ...item, cantidad: qty } : item))
+    );
+  };
+
+  const handleSaveConsumo = async () => {
+    if (!consumoCliente.trim()) {
+      Alert.alert('Validación', 'Por favor ingresa el Cliente o Referencia del Trabajo.');
+      return;
+    }
+
+    if (consumoItems.length === 0) {
+      Alert.alert('Validación', 'Agrega al menos un producto a descontar.');
+      return;
+    }
+
+    // Validar stock antes de enviar
+    for (const item of consumoItems) {
+      const prod = productos.find(p => p.id === item.productoId);
+      if (!prod) continue;
+
+      if (item.cantidad <= 0) {
+        Alert.alert('Validación', `La cantidad a consumir para "${prod.nombre_oficial}" debe ser mayor a 0.`);
+        return;
+      }
+
+      if (item.cantidad > prod.stock_actual) {
+        Alert.alert(
+          'Stock Insuficiente',
+          `No puedes consumir ${item.cantidad} unidades de "${prod.nombre_oficial}" porque solo hay ${prod.stock_actual} disponibles.`
+        );
+        return;
+      }
+    }
+
+    setIsSavingConsumo(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData?.user?.id || null;
+
+      // Restar stock y registrar movimientos
+      for (const item of consumoItems) {
+        const prod = productos.find(p => p.id === item.productoId)!;
+        const newStock = prod.stock_actual - item.cantidad;
+
+        // 1. Descontar del inventario
+        const { error: stockErr } = await supabase
+          .from('productos')
+          .update({ stock_actual: newStock })
+          .eq('id', item.productoId);
+
+        if (stockErr) throw stockErr;
+
+        // 2. Registrar movimiento de salida
+        const { error: moveErr } = await supabase
+          .from('movimientos_inventario')
+          .insert([
+            {
+              producto_id: item.productoId,
+              tipo: 'SALIDA',
+              cantidad: item.cantidad,
+              folio_factura: consumoCliente.trim(),
+              creado_por: currentUserId,
+            },
+          ]);
+
+        if (moveErr) {
+          console.warn('Ajuste de consumo realizado pero falló el registro histórico:', moveErr.message);
+        }
+      }
+
+      Alert.alert('Éxito', 'Consumo registrado. Se actualizaron los niveles de stock.');
+      setConsumoItems([]);
+      setConsumoCliente('');
+      setActiveTab('catalogo');
+      await loadAllData();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo guardar la nota de consumo.');
+    } finally {
+      setIsSavingConsumo(false);
+    }
+  };
+
+
+
+  // --- Carga de Factura PDF/Imagen e IA ---
+  const handlePickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const fileAsset = result.assets[0];
+      const uri = fileAsset.uri;
+      const mimeType = fileAsset.mimeType || '';
+
+      const isPdf = mimeType.includes('pdf') || uri.endsWith('.pdf');
+      const isImage = mimeType.startsWith('image/') || uri.endsWith('.jpg') || uri.endsWith('.jpeg') || uri.endsWith('.png') || uri.endsWith('.webp');
+
+      if (!isPdf && !isImage) {
+        Alert.alert('Validación', 'Por favor selecciona únicamente archivos PDF o imágenes (JPG, PNG, WEBP).');
+        return;
+      }
+
+      const resolvedMime = mimeType || (uri.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+      setIsAnalyzing(true);
+
+      // 1. Obtener base64 compatible con Web y Móvil
+      let base64Data = '';
+      if (Platform.OS === 'web') {
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const resultStr = reader.result as string;
+            const data = resultStr.split(',')[1] || resultStr;
+            resolve(data);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        const FileSystem = require('expo-file-system');
+        base64Data = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        base64Data = base64Data.replace(/^data:[a-zA-Z0-9/\-+.]+;base64,/, ''); // Safety cleanup
+      }
+
+      // 2. Compilar catálogo maestro JSON
+      const catalogoMaestro = categorias.map(cat => ({
+        categoria: cat.nombre,
+        productos: productos
+          .filter(p => p.categoria_id === cat.id && p.activo)
+          .map(p => ({
+            sku: p.sku_interno,
+            nombre: p.nombre_oficial,
+          })),
+      }));
+      const catalogoMaestroJson = JSON.stringify(catalogoMaestro, null, 2);
+
+      // 3. Invocar servicio Gemini real con la estructura solicitada
+      const extraction = await GeminiService.extractInvoiceProducts(
+        base64Data,
+        resolvedMime,
+        catalogoMaestroJson
+      );
+
+      // 4. Procesar y mapear resultados en base al catálogo y metadatos
+      if (extraction && extraction.partidas_extraidas) {
+        // Mapear metadatos de factura a la UI
+        if (extraction.factura_metadata) {
+          const meta = extraction.factura_metadata;
+          if (meta.folio_factura) {
+            setFolioFactura(meta.folio_factura);
+          }
+          if (meta.proveedor_original) {
+            const provName = meta.proveedor_original.toLowerCase();
+            const rfcClean = meta.rfc_emisor?.replace(/[^A-Z0-9]/ig, '') || '';
+            const matchingProv = proveedores.find(p => {
+              const pRfcClean = p.rfc?.replace(/[^A-Z0-9]/ig, '') || '';
+              return (rfcClean && pRfcClean === rfcClean) || p.nombre.toLowerCase().includes(provName);
+            });
+            if (matchingProv) {
+              setSelectedProveedorId(matchingProv.id);
+            }
+          }
+        }
+
+        // Mapear partidas extraídas al Staging del inventario
+        const mappedItems: FacturaItemStaging[] = extraction.partidas_extraidas.map((item, idx) => {
+          const iaClass = item.clasificacion_ia;
+          
+          // Buscar coincidencia exacta o lógica por nombre oficial
+          let suggestedProd = null;
+          if (iaClass.producto_normalizado) {
+            suggestedProd = productos.find(p => 
+              p.activo && p.nombre_oficial.toLowerCase().trim() === iaClass.producto_normalizado?.toLowerCase().trim()
+            );
+          }
+
+          // Si no hay coincidencia exacta de nombre, intentar coincidir parcialmente
+          if (!suggestedProd && iaClass.producto_normalizado) {
+            suggestedProd = productos.find(p => 
+              p.activo && p.nombre_oficial.toLowerCase().includes(iaClass.producto_normalizado!.toLowerCase())
+            );
+          }
+
+          const esNuevo = !suggestedProd || iaClass.requiere_revision || iaClass.confianza_mapeo < 0.80;
+
+          // Buscar coincidencia lógica de categoría
+          const suggestedCat = categorias.find(c => 
+            c.nombre.toLowerCase().trim() === iaClass.categoria_maestra?.toLowerCase().trim()
+          );
+
+          return {
+            id: `item-${idx}-${Date.now()}`,
+            nombreFactura: item.descripcion_proveedor,
+            cantidad: item.cantidad,
+            precioUnitario: item.precio_unitario,
+            productoIdSugerido: suggestedProd?.id,
+            esNuevoProducto: esNuevo,
+            categoriaSeleccionadaId: suggestedCat?.id || categorias[0]?.id,
+          };
+        });
+
+        setStagingItems(mappedItems);
+      } else {
+        throw new Error('La respuesta del servicio de IA no contiene partidas extraídas.');
+      }
+    } catch (err: any) {
+      console.error('Error al procesar factura con IA:', err);
+      Alert.alert('Error de Extracción', err.message || 'No se pudo procesar la factura con Inteligencia Artificial.');
+    } finally {
       setIsAnalyzing(false);
-    }, 1500);
+    }
   };
 
   const handleUpdateStagingItem = (id: string, updates: Partial<FacturaItemStaging>) => {
@@ -305,497 +713,935 @@ export default function AdminInventario() {
     );
   };
 
-  const handleCommitAI = async () => {
+  const handleSaveAIImport = async () => {
     if (!selectedProveedorId) {
-      Alert.alert('Falta Proveedor', 'Selecciona el proveedor de la factura.');
+      Alert.alert('Validación', 'Por favor selecciona un Proveedor.');
       return;
     }
     if (!folioFactura.trim()) {
-      Alert.alert('Falta Folio', 'Ingresa el número de folio de la factura.');
+      Alert.alert('Validación', 'Por favor ingresa el Folio de la Factura.');
       return;
     }
     if (stagingItems.length === 0) {
-      Alert.alert('Vacío', 'No hay registros en la tabla borrador.');
+      Alert.alert('Validación', 'No hay ítems para procesar.');
       return;
     }
 
-    setIsCommittingIA(true);
+    setIsSavingAIImport(true);
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData?.user?.id || null;
+
+      // Procesar cada ítem del staging
       for (const item of stagingItems) {
-        let pId = item.productoIdSugerido;
+        let finalProductoId = item.productoIdSugerido;
 
         if (item.esNuevoProducto) {
-          // 1. Crear el producto nuevo en el catálogo
-          const skuGenerico = 'SKU-IA-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+          // 1. Crear nuevo producto en DB
+          const generatedSku = 'SKU-AI-' + Math.random().toString(36).substring(3, 8).toUpperCase();
           const { data: newProd, error: newProdErr } = await supabase
             .from('productos')
-            .insert([{
-              sku_interno: skuGenerico,
-              nombre_oficial: item.nombreFactura,
-              categoria_id: item.categoriaSeleccionadaId,
-              stock_actual: item.cantidad,
-              activo: true,
-            }])
+            .insert([
+              {
+                sku_interno: generatedSku,
+                nombre_oficial: item.nombreFactura,
+                categoria_id: item.categoriaSeleccionadaId || categorias[0]?.id,
+                stock_actual: item.cantidad,
+                activo: true,
+              },
+            ])
             .select()
             .single();
 
           if (newProdErr) throw newProdErr;
-          pId = newProd.id;
+          finalProductoId = newProd.id;
 
-          // 2. Guardar el Alias del Proveedor
-          await supabase
-            .from('alias_proveedor_producto')
-            .insert([{
+          // 2. Registrar alias proveedor
+          await supabase.from('alias_proveedor_producto').insert([
+            {
               proveedor_id: selectedProveedorId,
-              producto_id: pId,
+              producto_id: finalProductoId,
               nombre_segun_proveedor: item.nombreFactura,
-            }]);
-        } else if (pId) {
-          // Actualizar stock del producto existente
-          const prod = productos.find(p => p.id === pId);
-          if (prod) {
-            const nuevoStock = prod.stock_actual + item.cantidad;
-            const { error: stockErr } = await supabase
-              .from('productos')
-              .update({ stock_actual: nuevoStock })
-              .eq('id', pId);
+            },
+          ]);
+        } else if (finalProductoId) {
+          // 1. Actualizar el stock del producto existente
+          const prodObj = productos.find(p => p.id === finalProductoId);
+          const currentStock = prodObj ? prodObj.stock_actual : 0;
 
-            if (stockErr) throw stockErr;
+          const { error: stockErr } = await supabase
+            .from('productos')
+            .update({ stock_actual: currentStock + item.cantidad })
+            .eq('id', finalProductoId);
+
+          if (stockErr) throw stockErr;
+
+          // 2. Registrar alias (si no existe ya)
+          const { data: aliasExists } = await supabase
+            .from('alias_proveedor_producto')
+            .select('id')
+            .eq('proveedor_id', selectedProveedorId)
+            .eq('nombre_segun_proveedor', item.nombreFactura)
+            .maybeSingle();
+
+          if (!aliasExists) {
+            await supabase.from('alias_proveedor_producto').insert([
+              {
+                proveedor_id: selectedProveedorId,
+                producto_id: finalProductoId,
+                nombre_segun_proveedor: item.nombreFactura,
+              },
+            ]);
           }
         }
 
-        // 3. Registrar el movimiento de inventario (ENTRADA)
-        if (pId) {
-          await supabase
-            .from('movimientos_inventario')
-            .insert([{
-              producto_id: pId,
+        // 3. Crear movimiento de inventario (ENTRADA)
+        if (finalProductoId) {
+          await supabase.from('movimientos_inventario').insert([
+            {
+              producto_id: finalProductoId,
               tipo: 'ENTRADA',
               cantidad: item.cantidad,
               folio_factura: folioFactura.trim(),
               proveedor_id: selectedProveedorId,
-            }]);
+              creado_por: currentUserId,
+            },
+          ]);
         }
       }
 
-      Alert.alert('Importación Exitosa', 'El inventario, movimientos y alias se guardaron correctamente.');
+      Alert.alert('Éxito', 'Inventario actualizado correctamente.');
       setStagingItems([]);
       setFolioFactura('');
       setSelectedProveedorId('');
       setActiveTab('catalogo');
-      await fetchInitialData();
+      await loadAllData();
     } catch (err: any) {
-      Alert.alert('Error al registrar', err.message || 'Ocurrió un error guardando el borrador.');
+      Alert.alert('Error', err.message || 'No se pudo guardar la importación.');
     } finally {
-      setIsCommittingIA(false);
+      setIsSavingAIImport(false);
     }
   };
 
   // Filtrado de catálogo
   const filteredProducts = productos.filter(p => {
-    const matchesSearch = p.nombre_oficial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.sku_interno.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategoryFilter ? p.categoria_id === selectedCategoryFilter : true;
-    return matchesSearch && matchesCategory;
+    if (!p.activo) return false;
+    const matchesSearch =
+      p.nombre_oficial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.sku_interno.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCat = selectedCategoryFilter ? p.categoria_id === selectedCategoryFilter : true;
+    return matchesSearch && matchesCat;
   });
+
+  const activeCategoryName = categorias.find(c => c.id === selectedCategoryFilter)?.nombre;
+  const activeFormCategoryName = categorias.find(c => c.id === formCategoriaId)?.nombre;
+  const activeProveedorName = proveedores.find(p => p.id === selectedProveedorId)?.nombre;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(admin)/dashboard')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={themeColors.text} />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.headerSubtitle, { color: themeColors.textSecondary }]}>Logística y Almacén</Text>
-          <Text style={[styles.headerTitle, { color: themeColors.text }]}>Control de Inventario</Text>
-        </View>
+        <Text style={[styles.headerTitle, { color: themeColors.text }]}>Control de Inventario</Text>
+        <View style={{ width: 40 }} />
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabBar}>
+      <View style={[
+        styles.selectorsContainer,
+        {
+          paddingHorizontal: isMobile ? Spacing.two : Spacing.four,
+          gap: isMobile ? 6 : Spacing.one,
+        }
+      ]}>
         <TouchableOpacity
           onPress={() => setActiveTab('catalogo')}
-          style={[styles.tab, activeTab === 'catalogo' && { borderBottomColor: themeColors.accent, borderBottomWidth: 3 }]}
+          style={[
+            styles.selectorBtn,
+            activeTab === 'catalogo'
+              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+          ]}
         >
-          <Text style={[styles.tabText, { color: activeTab === 'catalogo' ? themeColors.text : themeColors.textSecondary }]}>Catálogo</Text>
+          <Text
+            style={[
+              styles.selectorText,
+              {
+                color: activeTab === 'catalogo' ? '#ffffff' : themeColors.textSecondary,
+                fontSize: isMobile ? 9.5 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Catálogo
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setActiveTab('ia-import')}
-          style={[styles.tab, activeTab === 'ia-import' && { borderBottomColor: themeColors.accent, borderBottomWidth: 3 }]}
+          style={[
+            styles.selectorBtn,
+            activeTab === 'ia-import'
+              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+          ]}
         >
-          <Text style={[styles.tabText, { color: activeTab === 'ia-import' ? themeColors.text : themeColors.textSecondary }]}>Carga IA</Text>
+          <Text
+            style={[
+              styles.selectorText,
+              {
+                color: activeTab === 'ia-import' ? '#ffffff' : themeColors.textSecondary,
+                fontSize: isMobile ? 9.5 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Importación IA
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTab('consumo')}
+          style={[
+            styles.selectorBtn,
+            activeTab === 'consumo'
+              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+          ]}
+        >
+          <Text
+            style={[
+              styles.selectorText,
+              {
+                color: activeTab === 'consumo' ? '#ffffff' : themeColors.textSecondary,
+                fontSize: isMobile ? 9.5 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Consumo
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setActiveTab('categorias')}
-          style={[styles.tab, activeTab === 'categorias' && { borderBottomColor: themeColors.accent, borderBottomWidth: 3 }]}
+          style={[
+            styles.selectorBtn,
+            activeTab === 'categorias'
+              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+          ]}
         >
-          <Text style={[styles.tabText, { color: activeTab === 'categorias' ? themeColors.text : themeColors.textSecondary }]}>Categorías</Text>
+          <Text
+            style={[
+              styles.selectorText,
+              {
+                color: activeTab === 'categorias' ? '#ffffff' : themeColors.textSecondary,
+                fontSize: isMobile ? 9.5 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Categorías
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {isLoading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={themeColors.accent} />
-          <Text style={{ color: themeColors.textSecondary, marginTop: 12 }}>Cargando información del inventario...</Text>
-        </View>
-      ) : (
+      {/* VISTA 1: CATÁLOGO */}
+      {activeTab === 'catalogo' && (
         <View style={{ flex: 1 }}>
-          {/* TAB 1: CATALOGO */}
-          {activeTab === 'catalogo' && (
-            <View style={{ flex: 1 }}>
-              {/* Filtros */}
-              <View style={styles.filterSection}>
-                <TextInput
-                  placeholder="🔍 Buscar por nombre o SKU..."
-                  placeholderTextColor={themeColors.textSecondary}
-                  value={searchTerm}
-                  onChangeText={setSearchTerm}
-                  style={[styles.searchInput, { backgroundColor: themeColors.backgroundElement, color: themeColors.text, borderColor: themeColors.border }]}
-                />
-                <View style={styles.pickerContainer}>
-                  <select
-                    value={selectedCategoryFilter}
-                    onChange={e => setSelectedCategoryFilter(e.target.value)}
-                    style={{
-                      ...webStyles.select,
-                      backgroundColor: themeColors.backgroundElement,
-                      color: themeColors.text,
-                      borderColor: themeColors.border
-                    }}
-                  >
-                    <option value="">Todas las Categorías</option>
-                    {categorias.map(c => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                  </select>
+          <View style={styles.filterSection}>
+            <CustomInput
+              placeholder="Buscar por nombre o SKU..."
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              iconName="search-outline"
+              style={{ marginBottom: Spacing.one }}
+            />
+
+            {/* Selector de Categoría */}
+            <View style={styles.customDropdownContainer}>
+              <TouchableOpacity
+                style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                onPress={openCategoryFilter}
+              >
+                <Text style={{ color: selectedCategoryFilter ? themeColors.text : themeColors.textSecondary }}>
+                  {activeCategoryName || 'Filtrar por Categoría'}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {isLoading ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color={themeColors.accent} />
+              <Text style={{ color: themeColors.textSecondary, marginTop: Spacing.one }}>Cargando catálogo...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredProducts}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.listContent}
+              renderItem={({ item }) => {
+                const cat = categorias.find(c => c.id === item.categoria_id);
+                return (
+                  <View style={[styles.listItem, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.skuText}>{item.sku_interno}</Text>
+                      <Text style={[styles.itemText, { color: themeColors.text }]}>{item.nombre_oficial}</Text>
+                      <Text style={[styles.itemSubtext, { color: themeColors.textSecondary }]}>
+                        {cat ? cat.nombre : 'Sin Categoría'}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.stockText,
+                          { color: item.stock_actual < 10 ? themeColors.danger : themeColors.success },
+                        ]}
+                      >
+                        Stock: {item.stock_actual} piezas
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center' }}>
+                      {/* Ajuste rápido de stock */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 4, gap: 4 }}>
+                        <TextInput
+                          style={[
+                            styles.quickStockInput,
+                            { color: themeColors.text, borderColor: themeColors.border, backgroundColor: themeColors.background },
+                          ]}
+                          placeholder="+"
+                          placeholderTextColor={themeColors.textSecondary}
+                          keyboardType="numeric"
+                          value={quickStockAdjustments[item.id] || ''}
+                          onChangeText={txt => setQuickStockAdjustments(prev => ({ ...prev, [item.id]: txt }))}
+                        />
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={() => handleQuickAddStock(item)}
+                          style={[styles.quickStockBtn, { backgroundColor: themeColors.success }]}
+                        >
+                          <Ionicons name="add" size={14} color="#ffffff" />
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity onPress={() => handleOpenEditModal(item)}>
+                        <Ionicons name="create-outline" size={20} color={themeColors.accent} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleSoftDeleteProduct(item)}>
+                        <Ionicons name="trash-outline" size={20} color={themeColors.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="cube-outline" size={48} color={themeColors.textSecondary} />
+                  <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
+                    No hay productos en inventario que coincidan.
+                  </Text>
                 </View>
+              }
+              refreshing={isLoading}
+              onRefresh={loadAllData}
+            />
+          )}
+
+          {/* FAB agregar */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleOpenCreateModal}
+            style={[styles.fab, { backgroundColor: themeColors.accent }]}
+          >
+            <Ionicons name="add" size={28} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* VISTA 2: IMPORTACIÓN POR IA */}
+       {activeTab === 'ia-import' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Extraer Factura con IA</Text>
+          <Text style={[styles.description, { color: themeColors.textSecondary }]}>
+            Sube un PDF de factura o imagen de recibo para extraer los productos, su cantidad y mapear su SKU en tu catálogo oficial mediante IA.
+          </Text>
+
+          {isAnalyzing ? (
+            <View style={styles.analyzingCard}>
+              <ActivityIndicator size="large" color={themeColors.warning} />
+              <Text style={[styles.analyzingText, { color: themeColors.text }]}>
+                Analizando archivo mediante IA...
+              </Text>
+            </View>
+          ) : stagingItems.length === 0 ? (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handlePickDocument}
+              style={[styles.dropzone, { borderColor: themeColors.border, backgroundColor: themeColors.backgroundElement }]}
+            >
+              <Ionicons name="document-attach-outline" size={42} color={themeColors.accent} />
+              <Text style={[styles.dropzoneText, { color: themeColors.text }]}>Seleccionar Factura (PDF o Imagen)</Text>
+              <Text style={[styles.dropzoneSub, { color: themeColors.textSecondary }]}>
+                Formatos soportados: PDF, JPEG, PNG, WEBP
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ gap: Spacing.two }}>
+              <View style={[styles.metadataCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                {/* Seleccionar Proveedor */}
+                <View style={styles.customDropdownContainer}>
+                  <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Proveedor *</Text>
+                  <TouchableOpacity
+                    style={[styles.dropdownTrigger, { backgroundColor: themeColors.background, borderColor: themeColors.border }]}
+                    onPress={openProveedorSelector}
+                  >
+                    <Text style={{ color: selectedProveedorId ? themeColors.text : themeColors.textSecondary }}>
+                      {activeProveedorName || 'Selecciona el emisor'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={18} color={themeColors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Folio Factura */}
+                <CustomInput
+                  label="Folio de Factura *"
+                  placeholder="Ej. FACT-2023"
+                  value={folioFactura}
+                  onChangeText={setFolioFactura}
+                />
               </View>
 
-              {/* Botón flotante para agregar manual */}
-              <TouchableOpacity onPress={handleOpenCreateModal} style={[styles.floatingAddBtn, { backgroundColor: themeColors.accent }]}>
-                <Ionicons name="add" size={26} color="#fff" />
-              </TouchableOpacity>
+              <Text style={[styles.subTitle, { color: themeColors.text }]}>Borrador de Staging Extraído:</Text>
 
-              <FlatList
-                data={filteredProducts}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.listContent}
-                renderItem={({ item }) => {
-                  const cat = categorias.find(c => c.id === item.categoria_id);
-                  return (
-                    <View style={[styles.itemCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.itemSku, { color: themeColors.accent }]}>{item.sku_interno}</Text>
-                        <Text style={[styles.itemTitle, { color: themeColors.text }]}>{item.nombre_oficial}</Text>
-                        <Text style={[styles.itemCategory, { color: themeColors.textSecondary }]}>📁 {cat ? cat.nombre : 'Sin categoría'}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end', gap: 10 }}>
-                        <Text style={[styles.itemStock, { color: item.stock_actual < 10 ? themeColors.danger : themeColors.success }]}>
-                          {item.stock_actual} pzas
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <TouchableOpacity onPress={() => handleOpenEditModal(item)} style={styles.iconBtn}>
-                            <Ionicons name="create-outline" size={18} color={themeColors.accent} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleSoftDelete(item.id, item.nombre_oficial)} style={styles.iconBtn}>
-                            <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
-                          </TouchableOpacity>
+              {stagingItems.map(item => (
+                <View
+                  key={item.id}
+                  style={[styles.stagingItemCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                >
+                  <Text style={[styles.stagingName, { color: themeColors.text }]}>{item.nombreFactura}</Text>
+                  
+                  <View style={styles.stagingFieldsRow}>
+                    <View style={{ flex: 1 }}>
+                      <CustomInput
+                        label="Cantidad"
+                        keyboardType="numeric"
+                        value={item.cantidad.toString()}
+                        onChangeText={txt => handleUpdateStagingItem(item.id, { cantidad: parseInt(txt, 10) || 0 })}
+                      />
+                    </View>
+                    <View style={{ flex: 1.2 }}>
+                      <CustomInput
+                        label="Precio Unit."
+                        keyboardType="numeric"
+                        value={item.precioUnitario.toString()}
+                        onChangeText={txt => handleUpdateStagingItem(item.id, { precioUnitario: parseFloat(txt) || 0 })}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ marginTop: Spacing.one }}>
+                    {item.esNuevoProducto ? (
+                      <View style={styles.newProductContainer}>
+                        <View style={styles.badgeNew}>
+                          <Text style={styles.badgeNewText}>NUEVO PRODUCTO</Text>
+                        </View>
+                        {/* Dropdown de Categoría */}
+                        <View style={{ marginTop: Spacing.one }}>
+                          <Text style={[styles.dropdownLabel, { color: themeColors.text, fontSize: 11 }]}>Categoría Asignada</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4 }}>
+                            {categorias.map(cat => {
+                              const isSelected = item.categoriaSeleccionadaId === cat.id;
+                              return (
+                                <TouchableOpacity
+                                  key={cat.id}
+                                  onPress={() => handleUpdateStagingItem(item.id, { categoriaSeleccionadaId: cat.id })}
+                                  style={[
+                                    styles.catChip,
+                                    isSelected
+                                      ? { backgroundColor: themeColors.accent }
+                                      : { backgroundColor: themeColors.background, borderColor: themeColors.border },
+                                  ]}
+                                >
+                                  <Text style={[styles.catChipText, { color: isSelected ? '#fff' : themeColors.text }]}>
+                                    {cat.nombre.substring(0, 15)}...
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
                         </View>
                       </View>
-                    </View>
-                  );
-                }}
-                ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="cube-outline" size={48} color={themeColors.textSecondary} />
-                    <Text style={{ color: themeColors.textSecondary, marginTop: 8 }}>No se encontraron productos.</Text>
+                    ) : (
+                      <View style={styles.mappingContainer}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <Text style={[styles.dropdownLabel, { color: themeColors.text, fontSize: 11 }]}>Mapear con Catálogo:</Text>
+                          <TouchableOpacity
+                            onPress={() => openProductSelectorForStaging(item.id)}
+                            style={{ padding: 4 }}
+                          >
+                            <Ionicons name="search" size={16} color={themeColors.accent} />
+                          </TouchableOpacity>
+                        </View>
+
+                        {item.productoIdSugerido ? (
+                          (() => {
+                            const selectedProd = productos.find(p => p.id === item.productoIdSugerido);
+                            return (
+                              <View style={[styles.mappedProductRow, { borderColor: themeColors.border, backgroundColor: themeColors.background }]}>
+                                <View style={{ flex: 1, paddingRight: 8 }}>
+                                  <Text style={[styles.mappedProductTitle, { color: themeColors.text }]} numberOfLines={1}>
+                                    {selectedProd ? selectedProd.nombre_oficial : 'Producto No Encontrado'}
+                                  </Text>
+                                  <Text style={{ fontSize: 10, color: themeColors.textSecondary }}>
+                                    SKU: {selectedProd ? selectedProd.sku_interno : '-'}
+                                  </Text>
+                                </View>
+                                <TouchableOpacity
+                                  onPress={() => handleUpdateStagingItem(item.id, { productoIdSugerido: undefined })}
+                                >
+                                  <Ionicons name="close-circle" size={18} color={themeColors.danger} />
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })()
+                        ) : (
+                          <TouchableOpacity
+                            activeOpacity={0.7}
+                            style={[styles.searchPlaceholderBtn, { borderColor: themeColors.border, backgroundColor: themeColors.background }]}
+                            onPress={() => openProductSelectorForStaging(item.id)}
+                          >
+                            <Ionicons name="search-outline" size={15} color={themeColors.textSecondary} />
+                            <Text style={{ fontSize: 11, color: themeColors.textSecondary, marginLeft: 6 }}>
+                              Buscar producto en el catálogo...
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </View>
-                }
+
+                  <TouchableOpacity
+                    onPress={() => handleUpdateStagingItem(item.id, { esNuevoProducto: !item.esNuevoProducto })}
+                    style={styles.toggleStagingBtn}
+                  >
+                    <Text style={{ color: themeColors.accent, fontWeight: '700', fontSize: 12 }}>
+                      {item.esNuevoProducto ? 'Asociar a Producto Existente' : 'Registrar como Nuevo Producto'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              <View style={styles.stagingActions}>
+                <CustomButton
+                  title="Cancelar y Descartar"
+                  variant="danger"
+                  onPress={() => setStagingItems([])}
+                  style={{ flex: 1 }}
+                />
+                <CustomButton
+                  title="Procesar y Guardar"
+                  variant="success"
+                  loading={isSavingAIImport}
+                  onPress={handleSaveAIImport}
+                  style={{ flex: 1.5 }}
+                />
+              </View>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* VISTA 3: CATEGORÍAS */}
+      {activeTab === 'categorias' && (
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]} keyboardShouldPersistTaps="handled">
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Categorías de Productos</Text>
+            <Text style={[styles.description, { color: themeColors.textSecondary }]}>
+              Visualiza el catálogo de categorías de productos y el volumen total de artículos asociados a cada una.
+            </Text>
+
+            {/* Listado de Categorías */}
+            <Text style={[styles.subTitle, { color: themeColors.text, marginTop: Spacing.one }]}>
+              Categorías y Volúmenes de Productos:
+            </Text>
+            {categorias.map(cat => {
+              const count = productos.filter(p => p.categoria_id === cat.id && p.activo).length;
+              return (
+                <View
+                  key={cat.id}
+                  style={[styles.categoryInfoRow, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                >
+                  <Text style={[styles.categoryName, { color: themeColors.text }]}>{cat.nombre}</Text>
+                  <View style={[styles.countBadge, { backgroundColor: themeColors.accent + '20' }]}>
+                    <Text style={{ color: themeColors.accent, fontSize: 12, fontWeight: '800' }}>
+                      {count} {count === 1 ? 'producto' : 'productos'}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          {/* Botones de Acción Rápida Flotantes */}
+          <View style={styles.floatingActionRow}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setNewCatModalVisible(true)}
+              style={[styles.floatingActionBtn, { backgroundColor: themeColors.accent }]}
+            >
+              <Text style={styles.floatingActionBtnText}>➕ Categoría</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setNewProvModalVisible(true)}
+              style={[styles.floatingActionBtn, { backgroundColor: themeColors.accent }]}
+            >
+              <Text style={styles.floatingActionBtnText}>➕ Proveedor</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* VISTA 4: REGISTRAR CONSUMO */}
+      {activeTab === 'consumo' && (
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Registrar Consumo de Materiales</Text>
+          <Text style={[styles.description, { color: themeColors.textSecondary }]}>
+            Genera un ticket de consumo para restar del inventario los productos y cantidades utilizados en un trabajo o servicio.
+          </Text>
+
+          {/* Formulario de Metadatos */}
+          <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginBottom: Spacing.two, padding: Spacing.two }]}>
+            <CustomInput
+              label="Cliente o Referencia del Trabajo *"
+              placeholder="Ej. Instalación Residencial García / Proyecto Solar"
+              value={consumoCliente}
+              onChangeText={setConsumoCliente}
+            />
+          </View>
+
+          {/* Botón para agregar producto */}
+          <CustomButton
+            title="➕ Seleccionar Producto"
+            onPress={openProductSelectorForConsumo}
+            style={{ marginBottom: Spacing.two }}
+          />
+
+          <Text style={[styles.subTitle, { color: themeColors.text, marginBottom: Spacing.one }]}>
+            Artículos a Descontar del Inventario:
+          </Text>
+
+          {consumoItems.length === 0 ? (
+            <View style={[styles.emptyContainer, { paddingVertical: Spacing.four }]}>
+              <Ionicons name="cart-outline" size={48} color={themeColors.textSecondary} />
+              <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
+                No has agregado productos a la lista de consumo.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: Spacing.two }}>
+              {consumoItems.map(item => {
+                const prod = productos.find(p => p.id === item.productoId);
+                return (
+                  <View
+                    key={item.id}
+                    style={[styles.stagingItemCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={[styles.stagingName, { color: themeColors.text }]}>
+                          {prod ? prod.nombre_oficial : 'Producto desconocido'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: themeColors.textSecondary, marginTop: 2 }}>
+                          SKU: {prod ? prod.sku_interno : '-'} | Disponible: {prod ? prod.stock_actual : 0} pzas
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => handleRemoveConsumoItem(item.id)}>
+                        <Ionicons name="trash-outline" size={20} color={themeColors.danger} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: Spacing.one, gap: Spacing.two }}>
+                      <View style={{ flex: 1 }}>
+                        <CustomInput
+                          label="Cantidad a consumir"
+                          keyboardType="numeric"
+                          value={item.cantidad > 0 ? item.cantidad.toString() : ''}
+                          onChangeText={txt => handleUpdateConsumoItemQty(item.id, parseInt(txt, 10) || 0)}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+
+              <CustomButton
+                title="Procesar y Descontar Inventario"
+                variant="success"
+                loading={isSavingConsumo}
+                onPress={handleSaveConsumo}
+                style={{ marginTop: Spacing.two }}
               />
             </View>
           )}
 
-          {/* TAB 2: IMPORTAR CON IA */}
-          {activeTab === 'ia-import' && (
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-              <View style={[styles.panel, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                <Text style={[styles.panelTitle, { color: themeColors.accent }]}>Carga de Factura PDF mediante IA</Text>
+          {/* Historial de Consumos Recientes */}
+          <View style={{ marginTop: Spacing.four, borderTopWidth: 1, borderTopColor: themeColors.border, paddingTop: Spacing.three }}>
+            <Text style={[styles.subTitle, { color: themeColors.text, marginBottom: Spacing.two }]}>
+              Historial de Consumos Recientes
+            </Text>
 
-                {stagingItems.length === 0 ? (
-                  <View style={styles.uploadBox}>
-                    {isAnalyzing ? (
-                      <View style={{ alignItems: 'center', gap: 12 }}>
-                        <ActivityIndicator size="large" color={themeColors.accent} />
-                        <Text style={{ color: themeColors.text, fontWeight: '700' }}>Extrayendo metadatos y partidas con IA...</Text>
-                      </View>
-                    ) : (
-                      <TouchableOpacity onPress={handleSimulateOcr} style={{ alignItems: 'center' }}>
-                        <Ionicons name="cloud-upload-outline" size={64} color={themeColors.textSecondary} />
-                        <Text style={[styles.uploadText, { color: themeColors.text }]}>Arrastra aquí la Factura PDF</Text>
-                        <Text style={{ color: themeColors.textSecondary, fontSize: 12, marginTop: 4 }}>o presiona aquí para simular el escaneo con IA</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ) : (
-                  <View style={{ gap: 16 }}>
-                    {/* Metadatos */}
-                    <View style={styles.stagingMetaRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.metaLabel, { color: themeColors.textSecondary }]}>Proveedor de Factura</Text>
-                        <select
-                          value={selectedProveedorId}
-                          onChange={e => setSelectedProveedorId(e.target.value)}
-                          style={{
-                            ...webStyles.select,
-                            backgroundColor: themeColors.background,
-                            color: themeColors.text,
-                            borderColor: themeColors.border
-                          }}
-                        >
-                          <option value="">Seleccione Proveedor</option>
-                          {proveedores.map(p => (
-                            <option key={p.id} value={p.id}>{p.nombre}</option>
-                          ))}
-                        </select>
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.metaLabel, { color: themeColors.textSecondary }]}>Folio de Factura</Text>
-                        <TextInput
-                          placeholder="Folio factura"
-                          placeholderTextColor={themeColors.textSecondary}
-                          value={folioFactura}
-                          onChangeText={setFolioFactura}
-                          style={[styles.inputField, { backgroundColor: themeColors.background, color: themeColors.text, borderColor: themeColors.border }]}
-                        />
-                      </View>
-                    </View>
-
-                    {/* Listado Partidas Staging */}
-                    <Text style={{ fontSize: 14, fontWeight: '800', color: themeColors.text, marginTop: 8 }}>Productos Detectados (Borrador)</Text>
-                    {stagingItems.map(item => (
-                      <View key={item.id} style={[styles.stagingItemRow, { borderColor: themeColors.border }]}>
-                        <View style={{ flex: 1, gap: 4 }}>
-                          <Text style={[styles.stagingItemName, { color: themeColors.text }]}>{item.nombreFactura}</Text>
-                          <View style={{ flexDirection: 'row', gap: 12 }}>
-                            <Text style={{ color: themeColors.textSecondary, fontSize: 12 }}>Cant: {item.cantidad}</Text>
-                            <Text style={{ color: themeColors.textSecondary, fontSize: 12 }}>P.Unit: ${item.precioUnitario}</Text>
-                          </View>
-                        </View>
-
-                        <View style={{ flex: 1, alignItems: 'flex-end', gap: 6 }}>
-                          {item.esNuevoProducto ? (
-                            <View style={{ gap: 4, width: '100%' }}>
-                              <Text style={{ fontSize: 10, color: themeColors.warning, fontWeight: '700' }}>CREAR COMO NUEVO</Text>
-                              <select
-                                value={item.categoriaSeleccionadaId || ''}
-                                onChange={e => handleUpdateStagingItem(item.id, { categoriaSeleccionadaId: e.target.value })}
-                                style={{
-                                  ...webStyles.select,
-                                  backgroundColor: themeColors.background,
-                                  color: themeColors.text,
-                                  borderColor: themeColors.border,
-                                  padding: 4,
-                                  fontSize: 12
-                                }}
-                              >
-                                {categorias.map(c => (
-                                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                                ))}
-                              </select>
-                            </View>
-                          ) : (
-                            <select
-                              value={item.productoIdSugerido || ''}
-                              onChange={e => handleUpdateStagingItem(item.id, { productoIdSugerido: e.target.value })}
-                              style={{
-                                ...webStyles.select,
-                                backgroundColor: themeColors.background,
-                                color: themeColors.text,
-                                borderColor: themeColors.border,
-                                padding: 4,
-                                fontSize: 12,
-                                width: '100%'
-                              }}
-                            >
-                              <option value="">-- Mapear Catálogo --</option>
-                              {productos.map(p => (
-                                <option key={p.id} value={p.id}>{p.nombre_oficial}</option>
-                              ))}
-                            </select>
-                          )}
-
-                          <TouchableOpacity
-                            onPress={() => handleUpdateStagingItem(item.id, { esNuevoProducto: !item.esNuevoProducto })}
-                          >
-                            <Text style={{ fontSize: 12, color: themeColors.accent, fontWeight: '700', textDecorationLine: 'underline' }}>
-                              {item.esNuevoProducto ? 'Asociar Existente' : 'Marcar Nuevo'}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-
-                    <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end', marginTop: 12 }}>
-                      <CustomButton title="Recomenzar" onPress={() => setStagingItems([])} variant="danger" style={{ height: 42 }} />
-                      <CustomButton
-                        title={isCommittingIA ? "Guardando..." : "Guardar en Catálogo"}
-                        onPress={handleCommitAI}
-                        variant="success"
-                        style={{ height: 42 }}
-                        loading={isCommittingIA}
-                      />
-                    </View>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          )}
-
-          {/* TAB 3: CATEGORIAS */}
-          {activeTab === 'categorias' && (
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-              <View style={[styles.panel, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                <Text style={[styles.panelTitle, { color: themeColors.accent }]}>Transferencia Masiva de Categorías</Text>
-                <Text style={{ color: themeColors.textSecondary, fontSize: 13, marginBottom: 16 }}>
-                  Mueve masivamente todos los productos activos de una categoría de origen a otra de destino en un solo paso.
+            {historialConsumo.length === 0 ? (
+              <View style={[styles.emptyContainer, { paddingVertical: Spacing.three, backgroundColor: themeColors.backgroundElement, borderRadius: BorderRadius.medium }]}>
+                <Ionicons name="time-outline" size={32} color={themeColors.textSecondary} />
+                <Text style={[styles.emptyText, { color: themeColors.textSecondary, fontSize: 13, marginTop: 4 }]}>
+                  No hay registros de consumo anteriores.
                 </Text>
-
-                <View style={{ gap: 12, marginBottom: 20 }}>
-                  <Text style={[styles.metaLabel, { color: themeColors.textSecondary }]}>Categoría Origen</Text>
-                  <select
-                    value={sourceCatId}
-                    onChange={e => setSourceCatId(e.target.value)}
-                    style={{
-                      ...webStyles.select,
-                      backgroundColor: themeColors.background,
-                      color: themeColors.text,
-                      borderColor: themeColors.border
-                    }}
-                  >
-                    <option value="">Selecciona Origen</option>
-                    {categorias.map(c => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                  </select>
-
-                  <Text style={[styles.metaLabel, { color: themeColors.textSecondary }]}>Categoría Destino</Text>
-                  <select
-                    value={destCatId}
-                    onChange={e => setDestCatId(e.target.value)}
-                    style={{
-                      ...webStyles.select,
-                      backgroundColor: themeColors.background,
-                      color: themeColors.text,
-                      borderColor: themeColors.border
-                    }}
-                  >
-                    <option value="">Selecciona Destino</option>
-                    {categorias.map(c => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                  </select>
-                </View>
-
-                <CustomButton
-                  title={isMovingMassive ? "Transfiriendo..." : "Mover Productos Masivamente"}
-                  onPress={handleBulkMove}
-                  loading={isMovingMassive}
-                  variant="primary"
-                />
               </View>
-
-              {/* Listado de categorías */}
-              <View style={{ gap: 10, marginTop: 12 }}>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: themeColors.text }}>Categorías Registradas</Text>
-                {categorias.map(c => {
-                  const pCount = productos.filter(p => p.categoria_id === c.id).length;
+            ) : (
+              <View style={{ gap: Spacing.one }}>
+                {historialConsumo.map(item => {
+                  const dateStr = item.fecha ? item.fecha.split('T')[0] : '';
                   return (
-                    <View key={c.id} style={[styles.catRow, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.catName, { color: themeColors.text }]}>{c.nombre}</Text>
-                        {!!c.descripcion && <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>{c.descripcion}</Text>}
+                    <View
+                      key={item.id}
+                      style={[
+                        styles.listItem,
+                        {
+                          backgroundColor: themeColors.backgroundElement,
+                          borderColor: themeColors.border,
+                          padding: Spacing.two,
+                          marginBottom: 0,
+                        }
+                      ]}
+                    >
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: themeColors.text }} numberOfLines={1}>
+                          {item.producto ? item.producto.nombre_oficial : 'Producto Eliminado'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: themeColors.textSecondary, marginTop: 4 }}>
+                          Ref: {item.folio_factura || 'N/A'} | Fecha: {dateStr}
+                        </Text>
                       </View>
-                      <View style={[styles.catBadge, { backgroundColor: themeColors.accent + '15' }]}>
-                        <Text style={{ color: themeColors.accent, fontSize: 12, fontWeight: '700' }}>{pCount} pzas</Text>
+                      <View style={{ backgroundColor: themeColors.danger + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.small }}>
+                        <Text style={{ color: themeColors.danger, fontSize: 12, fontWeight: '800' }}>
+                          -{item.cantidad} pzas
+                        </Text>
                       </View>
                     </View>
                   );
                 })}
               </View>
-            </ScrollView>
-          )}
-        </View>
+            )}
+          </View>
+        </ScrollView>
       )}
 
       {/* ========== MODAL CRUD MANUAL ========== */}
       <Modal
         animationType="slide"
         transparent={true}
-        visible={isModalOpen}
-        onRequestClose={() => setIsModalOpen(false)}
+        visible={crudModalVisible}
+        onRequestClose={() => setCrudModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: themeColors.backgroundElement }]}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '70%' }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: themeColors.text }]}>
-                {editingProduct ? 'Editar Producto' : 'Nuevo Producto Manual'}
+                {editingProduct ? 'Modificar Producto' : 'Nuevo Producto'}
               </Text>
-              <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+              <TouchableOpacity onPress={() => setCrudModalVisible(false)}>
                 <Ionicons name="close" size={24} color={themeColors.text} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={{ gap: 16 }}>
+            <ScrollView contentContainerStyle={{ gap: Spacing.two }} keyboardShouldPersistTaps="handled">
               <CustomInput
-                label="SKU Interno / Código"
+                label="SKU Interno *"
                 placeholder="Ej. SOL-REN-640W"
                 value={formSku}
                 onChangeText={setFormSku}
+                autoCapitalize="characters"
               />
+
               <CustomInput
-                label="Nombre Oficial"
+                label="Nombre Oficial *"
                 placeholder="Ej. Panel Solar Renesola N-Type..."
                 value={formNombre}
                 onChangeText={setFormNombre}
               />
 
-              <View style={{ gap: 6 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: themeColors.textSecondary }}>Categoría</Text>
-                <select
-                  value={formCategoriaId}
-                  onChange={e => setFormCategoriaId(e.target.value)}
-                  style={{
-                    ...webStyles.select,
-                    backgroundColor: themeColors.background,
-                    color: themeColors.text,
-                    borderColor: themeColors.border
-                  }}
+              {/* Selector de Categoría en Formulario */}
+              <View style={styles.customDropdownContainer}>
+                <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría *</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                  onPress={openFormCatSelector}
                 >
-                  {categorias.map(c => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                  ))}
-                </select>
+                  <Text style={{ color: formCategoriaId ? themeColors.text : themeColors.textSecondary }}>
+                    {activeFormCategoryName || 'Selecciona la categoría'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color={themeColors.text} />
+                </TouchableOpacity>
               </View>
 
               <CustomInput
-                label="Stock Inicial"
+                label="Stock Inicial *"
                 keyboardType="numeric"
-                value={formStock.toString()}
-                onChangeText={v => setFormStock(Number(v) || 0)}
+                value={formStock}
+                onChangeText={setFormStock}
               />
 
-              <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end', marginTop: 12 }}>
-                <CustomButton title="Cancelar" onPress={() => setIsModalOpen(false)} variant="danger" style={{ height: 42 }} />
-                <CustomButton
-                  title={isSavingProduct ? "Guardando..." : "Guardar Producto"}
-                  onPress={handleSaveProduct}
-                  variant="primary"
-                  style={{ height: 42 }}
-                  loading={isSavingProduct}
-                />
-              </View>
+              <CustomButton
+                title={editingProduct ? 'Guardar Cambios' : 'Dar de Alta'}
+                onPress={handleSaveProduct}
+                loading={isSavingProduct}
+                style={{ marginTop: Spacing.two }}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== CENTRALIZED SELECTOR MODAL ========== */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={selectorVisible}
+        onRequestClose={() => setSelectorVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '60%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>{selectorTitle}</Text>
+              <TouchableOpacity onPress={() => setSelectorVisible(false)}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <CustomInput
+              placeholder="Buscar..."
+              value={selectorSearch}
+              onChangeText={setSelectorSearch}
+              iconName="search-outline"
+              style={{ marginBottom: Spacing.two }}
+            />
+
+            <FlatList
+              data={filteredSelectorOptions}
+              keyExtractor={item => item.id}
+              contentContainerStyle={{ paddingBottom: Spacing.four }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.dropdownItem, { borderBottomColor: themeColors.border }]}
+                  onPress={() => {
+                    onSelectOption(item.id);
+                    setSelectorVisible(false);
+                  }}
+                >
+                  <Text style={{ color: themeColors.text, fontSize: 14, paddingVertical: 4 }}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={{ alignItems: 'center', padding: Spacing.four }}>
+                  <Text style={{ color: themeColors.textSecondary, fontSize: 13 }}>
+                    No se encontraron opciones.
+                  </Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL NUEVA CATEGORÍA ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={newCatModalVisible}
+        onRequestClose={() => setNewCatModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '55%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>Nueva Categoría</Text>
+              <TouchableOpacity onPress={() => setNewCatModalVisible(false)}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ gap: Spacing.two }} keyboardShouldPersistTaps="handled">
+              <CustomInput
+                label="Nombre de Categoría *"
+                placeholder="Ej. Conexiones Especiales"
+                value={newCatNombre}
+                onChangeText={setNewCatNombre}
+              />
+              <CustomInput
+                label="Descripción (Opcional)"
+                placeholder="Ej. Coples, reducciones y sellos"
+                value={newCatDesc}
+                onChangeText={setNewCatDesc}
+              />
+
+              <CustomButton
+                title="Guardar Categoría"
+                onPress={handleCreateCategory}
+                loading={isSavingNewCat}
+                style={{ marginTop: Spacing.two }}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL NUEVO PROVEEDOR ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={newProvModalVisible}
+        onRequestClose={() => setNewProvModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '55%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>Nuevo Proveedor</Text>
+              <TouchableOpacity onPress={() => setNewProvModalVisible(false)}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ gap: Spacing.two }} keyboardShouldPersistTaps="handled">
+              <CustomInput
+                label="Nombre o Razón Social *"
+                placeholder="Ej. Materiales Eléctricos del Norte S.A."
+                value={newProvNombre}
+                onChangeText={setNewProvNombre}
+              />
+              <CustomInput
+                label="RFC (Opcional)"
+                placeholder="Ej. MEN120415XYZ"
+                value={newProvRfc}
+                onChangeText={setNewProvRfc}
+                autoCapitalize="characters"
+              />
+
+              <CustomButton
+                title="Guardar Proveedor"
+                onPress={handleCreateProveedor}
+                loading={isSavingNewProv}
+                style={{ marginTop: Spacing.two }}
+              />
             </ScrollView>
           </View>
         </View>
@@ -804,71 +1650,97 @@ export default function AdminInventario() {
   );
 }
 
-// Estilos nativos estilizados
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
-    gap: Spacing.two,
   },
   backBtn: {
     padding: Spacing.one,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '800',
   },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  tabBar: {
+  selectorsContainer: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.four,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    gap: Spacing.one,
+    marginBottom: Spacing.two,
   },
-  tab: {
+  selectorBtn: {
     flex: 1,
+    height: 40,
+    borderRadius: BorderRadius.small,
+    borderWidth: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: Spacing.two,
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
   },
-  tabText: {
+  selectorText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  filterSection: {
+    paddingHorizontal: Spacing.four,
+    marginBottom: Spacing.two,
+    zIndex: 20,
+  },
+  listContent: {
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.seven,
+  },
+  listItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    marginBottom: Spacing.two,
+  },
+  skuText: {
+    fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace', web: 'monospace' }),
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#ffc107',
+    textTransform: 'uppercase',
+  },
+  itemText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  itemSubtext: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  stockText: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
   },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterSection: {
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    flexDirection: 'row',
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.seven,
     gap: Spacing.two,
   },
-  searchInput: {
-    flex: 2,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: BorderRadius.medium,
-    paddingHorizontal: Spacing.three,
+  emptyText: {
     fontSize: 14,
+    textAlign: 'center',
   },
-  pickerContainer: {
-    flex: 1.2,
-    height: 44,
-  },
-  floatingAddBtn: {
+  fab: {
     position: 'absolute',
     bottom: Spacing.four,
     right: Spacing.four,
@@ -879,141 +1751,265 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 8,
-    zIndex: 99,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.seven,
-  },
-  itemCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: Spacing.three,
-    borderRadius: BorderRadius.medium,
-    borderWidth: 1,
-    marginBottom: Spacing.two,
-  },
-  itemSku: {
-    fontFamily: 'monospace',
-    fontWeight: '700',
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  itemTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  itemCategory: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  itemStock: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  iconBtn: {
-    padding: 6,
-    borderRadius: BorderRadius.small,
-    backgroundColor: '#00000008',
+    elevation: 5,
   },
   scrollContent: {
-    padding: Spacing.four,
-    paddingBottom: Spacing.seven,
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.six,
   },
-  panel: {
-    borderRadius: BorderRadius.medium,
-    borderWidth: 1,
-    padding: Spacing.four,
-    marginBottom: Spacing.three,
+  floatingActionRow: {
+    position: 'absolute',
+    bottom: Spacing.four,
+    left: Spacing.four,
+    right: Spacing.four,
+    flexDirection: 'row',
+    gap: Spacing.two,
+    backgroundColor: 'transparent',
   },
-  panelTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginBottom: 12,
-  },
-  uploadBox: {
-    height: 160,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#aaa',
+  floatingActionBtn: {
+    flex: 1,
+    height: 48,
     borderRadius: BorderRadius.medium,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#00000005',
-    padding: Spacing.three,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  uploadText: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: Spacing.one,
+  floatingActionBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
   },
-  stagingMetaRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  metaLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  inputField: {
-    height: 40,
-    borderWidth: 1,
-    borderRadius: BorderRadius.small,
-    paddingHorizontal: Spacing.two,
-    fontSize: 14,
-  },
-  stagingItemRow: {
-    borderWidth: 1,
-    borderRadius: BorderRadius.small,
-    padding: Spacing.three,
+  mappedProductRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.two,
+    padding: Spacing.two,
+    borderRadius: BorderRadius.small,
+    borderWidth: 1,
+    marginTop: Spacing.one,
   },
-  stagingItemName: {
-    fontSize: 13,
+  mappedProductTitle: {
+    fontSize: 12,
     fontWeight: '700',
   },
-  catRow: {
+  searchPlaceholderBtn: {
     flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.two,
+    borderRadius: BorderRadius.small,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    marginTop: Spacing.one,
+  },
+  quickStockInput: {
+    width: 45,
+    height: 32,
+    borderWidth: 1,
+    borderRadius: BorderRadius.small,
+    paddingHorizontal: 4,
+    textAlign: 'center',
+    fontSize: 12,
+  },
+  quickStockBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.small,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  description: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: Spacing.three,
+  },
+  dropzone: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: BorderRadius.medium,
+    paddingVertical: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+  },
+  dropzoneText: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  dropzoneSub: {
+    fontSize: 12,
+  },
+  analyzingCard: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+  },
+  analyzingText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  metadataCard: {
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.two,
+    zIndex: 30,
+  },
+  subTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: Spacing.one,
+  },
+  stagingItemCard: {
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    marginBottom: Spacing.two,
+    gap: Spacing.one,
+  },
+  stagingName: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  stagingFieldsRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: 4,
+  },
+  newProductContainer: {
+    backgroundColor: 'rgba(255, 193, 7, 0.05)',
+    padding: Spacing.two,
+    borderRadius: BorderRadius.small,
+    borderWidth: 0.5,
+    borderColor: '#ffc107',
+  },
+  badgeNew: {
+    backgroundColor: '#ffc107',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.small,
+    alignSelf: 'flex-start',
+  },
+  badgeNewText: {
+    color: '#000',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  catChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.pill,
+    borderWidth: 1,
+  },
+  catChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mappingContainer: {
+    backgroundColor: 'rgba(76, 175, 80, 0.05)',
+    padding: Spacing.two,
+    borderRadius: BorderRadius.small,
+    borderWidth: 0.5,
+    borderColor: '#4caf50',
+  },
+  toggleStagingBtn: {
+    marginTop: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  stagingActions: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.two,
+  },
+  innerCard: {
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  innerCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: Spacing.two,
+  },
+  categoryInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     padding: Spacing.three,
     borderRadius: BorderRadius.medium,
     borderWidth: 1,
+    marginBottom: Spacing.one,
   },
-  catName: {
-    fontSize: 14,
+  categoryName: {
+    fontSize: 13,
     fontWeight: '700',
+    flex: 1,
   },
-  catBadge: {
-    paddingHorizontal: Spacing.two,
+  countBadge: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: BorderRadius.pill,
+  },
+  // Modal de Dropdowns y selectores
+  customDropdownContainer: {
+    position: 'relative',
+    zIndex: 5,
+  },
+  dropdownLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: Spacing.half,
+  },
+  dropdownTrigger: {
+    height: 48,
+    borderRadius: BorderRadius.small,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.two,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 52,
+    left: 0,
+    right: 0,
+    borderRadius: BorderRadius.small,
+    borderWidth: 1,
+    zIndex: 99,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  dropdownItem: {
+    padding: Spacing.two,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#eee',
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    width: '90%',
-    maxWidth: 450,
-    borderRadius: BorderRadius.large,
+    borderTopLeftRadius: BorderRadius.large,
+    borderTopRightRadius: BorderRadius.large,
     padding: Spacing.four,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1025,24 +2021,4 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.six,
-  },
 });
-
-// Estilos web puros para consistencia de elementos select HTML5
-const webStyles = {
-  select: {
-    width: '100%',
-    height: 44,
-    padding: '0 12px',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    fontSize: 14,
-    cursor: 'pointer',
-    outline: 'none',
-  },
-};

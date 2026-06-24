@@ -190,5 +190,132 @@ Instrucciones para el reporte:
       console.error('Error in generateTechnicalSummary:', err);
       throw new Error(err.message || 'Error al generar el reporte técnico con Inteligencia Artificial.');
     }
+  },
+
+  async extractInvoiceProducts(
+    base64File: string,
+    mimeType: string,
+    catalogoMaestroJson: string
+  ): Promise<{
+    factura_metadata: {
+      proveedor_original: string | null;
+      fecha_compra: string | null;
+      folio_factura: string | null;
+      rfc_emisor: string | null;
+    };
+    partidas_extraidas: Array<{
+      descripcion_proveedor: string;
+      cantidad: number;
+      unidad: string;
+      precio_unitario: number;
+      clasificacion_ia: {
+        categoria_maestra: string;
+        producto_normalizado: string | null;
+        confianza_mapeo: number;
+        requiere_revision: boolean;
+      };
+    }>;
+  }> {
+    if (!GEMINI_API_KEY) {
+      throw new Error('Gemini API Key is missing. Check your environment variables.');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const prompt = `Eres un agente experto en análisis de datos y normalización de inventarios para la plataforma corporativa Portal Inttec. 
+
+Tu tarea es analizar la factura o recibo de compra adjunto (en formato PDF o imagen) y extraer las partidas de productos, ignorando servicios, cargos por envío o pagos electrónicos.
+
+REGLAS DE EXTRACCIÓN Y MAPEO:
+1. Extrae la cantidad, la unidad de medida, el precio unitario y la descripción original EXACTA del proveedor.
+2. Compara la descripción original del proveedor con nuestro Catálogo Maestro de Productos.
+3. Encuentra la coincidencia lógica más cercana, incluso si el proveedor usa abreviaturas, sinónimos o un orden de palabras diferente.
+4. Asigna la "categoria_maestra" y el "producto_normalizado" basándote ÚNICAMENTE en el Catálogo Maestro proporcionado.
+5. Evalúa tu nivel de certeza en el mapeo con un "confianza_mapeo" (un valor decimal de 0.0 a 1.0). 
+6. Si la coincidencia no es clara o la confianza es menor a 0.80, marca "requiere_revision" como true.
+7. Si el producto definitivamente no existe en el catálogo, deja "producto_normalizado" en null, asigna la categoría más lógica y marca "requiere_revision" como true.
+
+CATÁLOGO MAESTRO DE REFERENCIA:
+${catalogoMaestroJson}
+
+FORMATO DE SALIDA:
+Debes responder ESTRICTAMENTE con un objeto JSON válido, sin formato Markdown adicional (sin \`\`\`json), usando la siguiente estructura:
+
+{
+  "factura_metadata": {
+    "proveedor_original": "Nombre del proveedor",
+    "fecha_compra": "YYYY-MM-DD",
+    "folio_factura": "Número o folio",
+    "rfc_emisor": "RFC si está disponible"
+  },
+  "partidas_extraidas": [
+    {
+      "descripcion_proveedor": "TEXTO ORIGINAL DEL PROVEEDOR",
+      "cantidad": 0,
+      "unidad": "PIEZA/METRO/ETC",
+      "precio_unitario": 0.00,
+      "clasificacion_ia": {
+        "categoria_maestra": "Categoría del Catálogo",
+        "producto_normalizado": "Nombre oficial del Catálogo o null",
+        "confianza_mapeo": 0.95,
+        "requiere_revision": false
+      }
+    }
+  ]
+}`;
+
+    const cleanBase64 = base64File.replace(/^data:[a-zA-Z0-9/\-+.]+;base64,/, '');
+
+    const requestBody = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+      }
+
+      const resData = await response.json();
+      const textResult = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!textResult) {
+        throw new Error('No se pudo extraer el contenido de la factura.');
+      }
+
+      let cleanJsonStr = textResult.trim();
+      const markdownMatch = cleanJsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (markdownMatch) {
+        cleanJsonStr = markdownMatch[1].trim();
+      }
+
+      return JSON.parse(cleanJsonStr);
+    } catch (err: any) {
+      console.error('Error in extractInvoiceProducts:', err);
+      throw new Error(err.message || 'Error al procesar la factura con Inteligencia Artificial.');
+    }
   }
 };

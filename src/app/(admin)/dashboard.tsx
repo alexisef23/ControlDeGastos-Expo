@@ -12,6 +12,7 @@ import {
   Image,
   Platform,
   Linking,
+  useWindowDimensions,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -28,6 +29,8 @@ import ImageViewerModal from '@/components/ImageViewerModal';
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = windowWidth < 600;
   const scheme = useColorScheme();
   const themeColors = Colors[scheme === 'dark' ? 'dark' : 'light'];
 
@@ -98,6 +101,10 @@ export default function AdminDashboard() {
     empleadoNombre: string;
     tipo: 'Entrada' | 'Salida';
   } | null>(null);
+
+  const [isFetchingAsistencias, setIsFetchingAsistencias] = useState(false);
+  const [isFetchingInventario, setIsFetchingInventario] = useState(false);
+  const [isFetchingConsumos, setIsFetchingConsumos] = useState(false);
 
   const handleOpenProfile = () => {
     if (adminUser) {
@@ -442,6 +449,106 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleExportAsistenciasPDF = async () => {
+    setIsFetchingAsistencias(true);
+    try {
+      const { data, error } = await supabase
+        .from('asistencias')
+        .select('*')
+        .order('fecha', { ascending: false });
+      if (error) throw error;
+      await ReportGenerator.exportAsistenciasToPDF(data || [], personal, 'Reporte de Asistencia General');
+    } catch (err: any) {
+      showAlert('Error PDF Asistencia', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingAsistencias(false);
+    }
+  };
+
+  const handleExportAsistenciasCSV = async () => {
+    setIsFetchingAsistencias(true);
+    try {
+      const { data, error } = await supabase
+        .from('asistencias')
+        .select('*')
+        .order('fecha', { ascending: false });
+      if (error) throw error;
+      await ReportGenerator.exportAsistenciasToCSV(data || [], personal, 'reporte_asistencia_general.csv');
+    } catch (err: any) {
+      showAlert('Error CSV Asistencia', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingAsistencias(false);
+    }
+  };
+
+  const handleExportInventarioPDF = async () => {
+    setIsFetchingInventario(true);
+    try {
+      const [prodRes, catRes] = await Promise.all([
+        supabase.from('productos').select('*').order('nombre_oficial'),
+        supabase.from('categorias_productos').select('*').order('nombre'),
+      ]);
+      if (prodRes.error) throw prodRes.error;
+      if (catRes.error) throw catRes.error;
+      await ReportGenerator.exportInventarioToPDF(prodRes.data || [], catRes.data || [], 'Reporte de Inventario de Materiales');
+    } catch (err: any) {
+      showAlert('Error PDF Inventario', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingInventario(false);
+    }
+  };
+
+  const handleExportInventarioCSV = async () => {
+    setIsFetchingInventario(true);
+    try {
+      const [prodRes, catRes] = await Promise.all([
+        supabase.from('productos').select('*').order('nombre_oficial'),
+        supabase.from('categorias_productos').select('*').order('nombre'),
+      ]);
+      if (prodRes.error) throw prodRes.error;
+      if (catRes.error) throw catRes.error;
+      await ReportGenerator.exportInventarioToCSV(prodRes.data || [], catRes.data || [], 'reporte_inventario_general.csv');
+    } catch (err: any) {
+      showAlert('Error CSV Inventario', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingInventario(false);
+    }
+  };
+
+  const handleExportConsumosPDF = async () => {
+    setIsFetchingConsumos(true);
+    try {
+      const { data, error } = await supabase
+        .from('movimientos_inventario')
+        .select('*, producto:productos(nombre_oficial)')
+        .eq('tipo', 'SALIDA')
+        .order('fecha', { ascending: false });
+      if (error) throw error;
+      await ReportGenerator.exportConsumosToPDF(data || [], 'Reporte de Consumos de Materiales');
+    } catch (err: any) {
+      showAlert('Error PDF Consumos', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingConsumos(false);
+    }
+  };
+
+  const handleExportConsumosCSV = async () => {
+    setIsFetchingConsumos(true);
+    try {
+      const { data, error } = await supabase
+        .from('movimientos_inventario')
+        .select('*, producto:productos(nombre_oficial)')
+        .eq('tipo', 'SALIDA')
+        .order('fecha', { ascending: false });
+      if (error) throw error;
+      await ReportGenerator.exportConsumosToCSV(data || [], 'reporte_consumos_general.csv');
+    } catch (err: any) {
+      showAlert('Error CSV Consumos', err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setIsFetchingConsumos(false);
+    }
+  };
+
   // Filtrados por pestañas
   const pendingGastos = gastos.filter((g) => g.status === 'PENDING');
   const historyGastos = gastos.filter((g) => g.status === 'APPROVED' || g.status === 'REJECTED' || g.status === 'ACTION_REQUIRED');
@@ -519,55 +626,161 @@ export default function AdminDashboard() {
       </View>
 
       {/* Botones de Administración Extra */}
-      <View style={styles.quickActionsContainer}>
+      <View style={[
+        styles.quickActionsContainer,
+        {
+          paddingHorizontal: isMobile ? Spacing.two : Spacing.four,
+          gap: isMobile ? Spacing.one : Spacing.two,
+        }
+      ]}>
         <TouchableOpacity
           onPress={() => setPersonalModalVisible(true)}
-          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+          style={[
+            styles.quickActionBtn,
+            {
+              backgroundColor: themeColors.backgroundElement,
+              borderColor: themeColors.border,
+              paddingHorizontal: isMobile ? 4 : Spacing.one,
+            }
+          ]}
         >
           <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.accent + '15' }]}>
             <Ionicons name="people-sharp" size={18} color={themeColors.accent} />
           </View>
-          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Personal</Text>
+          <Text
+            style={[
+              styles.quickActionLabel,
+              {
+                color: themeColors.text,
+                fontSize: isMobile ? 10 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Personal
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => router.push('/(admin)/inventario' as any)}
-          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+          style={[
+            styles.quickActionBtn,
+            {
+              backgroundColor: themeColors.backgroundElement,
+              borderColor: themeColors.border,
+              paddingHorizontal: isMobile ? 4 : Spacing.one,
+            }
+          ]}
         >
           <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.warning + '15' }]}>
             <Ionicons name="cube-sharp" size={18} color={themeColors.warning} />
           </View>
-          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Inventario</Text>
+          <Text
+            style={[
+              styles.quickActionLabel,
+              {
+                color: themeColors.text,
+                fontSize: isMobile ? 10 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Inventario
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => setReportsModalVisible(true)}
-          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+          style={[
+            styles.quickActionBtn,
+            {
+              backgroundColor: themeColors.backgroundElement,
+              borderColor: themeColors.border,
+              paddingHorizontal: isMobile ? 4 : Spacing.one,
+            }
+          ]}
         >
           <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.success + '15' }]}>
             <Ionicons name="document-text-sharp" size={18} color={themeColors.success} />
           </View>
-          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Reportes</Text>
+          <Text
+            style={[
+              styles.quickActionLabel,
+              {
+                color: themeColors.text,
+                fontSize: isMobile ? 10 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Reportes
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => router.push('/(admin)/evidencias')}
-          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+          style={[
+            styles.quickActionBtn,
+            {
+              backgroundColor: themeColors.backgroundElement,
+              borderColor: themeColors.border,
+              paddingHorizontal: isMobile ? 4 : Spacing.one,
+            }
+          ]}
         >
           <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.actionRequired + '15' }]}>
             <Ionicons name="briefcase-sharp" size={18} color={themeColors.actionRequired} />
           </View>
-          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Evidencias</Text>
+          <Text
+            style={[
+              styles.quickActionLabel,
+              {
+                color: themeColors.text,
+                fontSize: isMobile ? 10 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Evidencias
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => router.push('/(admin)/catalogos')}
-          style={[styles.quickActionBtn, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+          style={[
+            styles.quickActionBtn,
+            {
+              backgroundColor: themeColors.backgroundElement,
+              borderColor: themeColors.border,
+              paddingHorizontal: isMobile ? 4 : Spacing.one,
+            }
+          ]}
         >
           <View style={[styles.quickActionIconBg, { backgroundColor: themeColors.warning + '15' }]}>
             <Ionicons name="options-sharp" size={18} color={themeColors.warning} />
           </View>
-          <Text style={[styles.quickActionLabel, { color: themeColors.text }]}>Catálogos</Text>
+          <Text
+            style={[
+              styles.quickActionLabel,
+              {
+                color: themeColors.text,
+                fontSize: isMobile ? 10 : 11,
+              }
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Catálogos
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -745,7 +958,7 @@ export default function AdminDashboard() {
         onRequestClose={() => setReportsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: themeColors.background, height: '45%' }]}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, maxHeight: '85%', paddingBottom: Spacing.four }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: themeColors.text }]}>Exportar Reportes</Text>
               <TouchableOpacity onPress={() => setReportsModalVisible(false)}>
@@ -753,29 +966,75 @@ export default function AdminDashboard() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.reportContent}>
-              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                <Ionicons name="document-text" size={32} color={themeColors.accent} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Exportar en PDF</Text>
-                  <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
-                    Informe estructurado con gráficos de balance organizacional.
-                  </Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.reportContent}>
+              {/* Tarjeta 1: Reporte de Gastos */}
+              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, flexDirection: 'column', alignItems: 'stretch', gap: Spacing.one }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+                  <Ionicons name="cash-outline" size={28} color={themeColors.accent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Reporte de Gastos</Text>
+                    <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                      Consolidado de gastos registrados, estados y montos.
+                    </Text>
+                  </View>
                 </View>
-                <CustomButton title="PDF" onPress={handleExportPDF} style={styles.exportBtn} />
+                <View style={{ flexDirection: 'row', gap: Spacing.two, marginTop: 4 }}>
+                  <CustomButton title="PDF" onPress={handleExportPDF} style={{ flex: 1, height: 36 }} />
+                  <CustomButton title="Excel (CSV)" onPress={handleExportCSV} variant="success" style={{ flex: 1, height: 36 }} />
+                </View>
               </View>
 
-              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                <Ionicons name="grid" size={32} color={themeColors.success} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Exportar en CSV</Text>
-                  <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
-                    Descarga en formato tabular óptimo para Microsoft Excel.
-                  </Text>
+              {/* Tarjeta 2: Reporte de Asistencia */}
+              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, flexDirection: 'column', alignItems: 'stretch', gap: Spacing.one }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+                  <Ionicons name="time-outline" size={28} color={themeColors.accent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Reporte de Asistencia</Text>
+                    <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                      Entradas, salidas y ubicaciones de checado del personal.
+                    </Text>
+                  </View>
                 </View>
-                <CustomButton title="CSV" onPress={handleExportCSV} variant="success" style={styles.exportBtn} />
+                <View style={{ flexDirection: 'row', gap: Spacing.two, marginTop: 4 }}>
+                  <CustomButton title="PDF" onPress={handleExportAsistenciasPDF} style={{ flex: 1, height: 36 }} loading={isFetchingAsistencias} />
+                  <CustomButton title="Excel (CSV)" onPress={handleExportAsistenciasCSV} variant="success" style={{ flex: 1, height: 36 }} loading={isFetchingAsistencias} />
+                </View>
               </View>
-            </View>
+
+              {/* Tarjeta 3: Reporte de Inventario */}
+              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, flexDirection: 'column', alignItems: 'stretch', gap: Spacing.one }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+                  <Ionicons name="cube-outline" size={28} color={themeColors.accent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Reporte de Inventario</Text>
+                    <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                      Catálogo de productos, categorías y existencias en stock.
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: Spacing.two, marginTop: 4 }}>
+                  <CustomButton title="PDF" onPress={handleExportInventarioPDF} style={{ flex: 1, height: 36 }} loading={isFetchingInventario} />
+                  <CustomButton title="Excel (CSV)" onPress={handleExportInventarioCSV} variant="success" style={{ flex: 1, height: 36 }} loading={isFetchingInventario} />
+                </View>
+              </View>
+
+              {/* Tarjeta 4: Reporte de Consumos */}
+              <View style={[styles.configCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, flexDirection: 'column', alignItems: 'stretch', gap: Spacing.one, marginTop: Spacing.two }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+                  <Ionicons name="receipt-outline" size={28} color={themeColors.accent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.configCardTitle, { color: themeColors.text }]}>Reporte de Consumos</Text>
+                    <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                      Historial detallado de salidas y consumos de materiales.
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: Spacing.two, marginTop: 4 }}>
+                  <CustomButton title="PDF" onPress={handleExportConsumosPDF} style={{ flex: 1, height: 36 }} loading={isFetchingConsumos} />
+                  <CustomButton title="Excel (CSV)" onPress={handleExportConsumosCSV} variant="success" style={{ flex: 1, height: 36 }} loading={isFetchingConsumos} />
+                </View>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1758,14 +2017,12 @@ const styles = StyleSheet.create({
   },
   quickActionsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
     marginBottom: Spacing.three,
   },
   quickActionBtn: {
     flex: 1,
-    minWidth: 65,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
