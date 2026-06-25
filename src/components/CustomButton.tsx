@@ -39,12 +39,14 @@ export default function CustomButton({
   let textColor: string = '#ffffff';
   let borderColor: string = 'transparent';
   let borderWidth = 0;
+  let hasShadow = true;
 
   if (variant === 'secondary') {
     backgroundColor = 'transparent';
     textColor = themeColors.text;
     borderColor = themeColors.border;
     borderWidth = 1;
+    hasShadow = false;
   } else if (variant === 'success') {
     backgroundColor = themeColors.success;
   } else if (variant === 'danger') {
@@ -67,6 +69,10 @@ export default function CustomButton({
           borderColor,
           borderWidth,
           opacity: isBtnDisabled ? 0.6 : 1,
+        },
+        !hasShadow && {
+          shadowOpacity: 0,
+          elevation: 0,
         },
         style,
       ]}

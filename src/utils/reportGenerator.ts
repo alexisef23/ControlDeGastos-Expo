@@ -92,7 +92,7 @@ export const ReportGenerator = {
             ${g.categoria || 'N/A'} - ${g.subcategoria || ''}
             ${alertLabel}
           </td>
-          <td>${g.metodo_pago}</td>
+          <td>${g.metodo_pago}${g.tipo_tarjeta ? ` (${g.tipo_tarjeta})` : ''}</td>
           <td><span class="status-badge" style="background-color: ${badgeColor};">${g.status}</span></td>
           <td style="text-align: right; font-weight: bold;">${montoFormatted}</td>
         </tr>

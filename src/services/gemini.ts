@@ -14,7 +14,7 @@ export interface GeminiOcrResult {
 }
 
 export const GeminiService = {
-  async scanTicket(base64Image: string, mimeType: string = 'image/jpeg'): Promise<GeminiOcrResult> {
+  async scanTicket(base64Image: string, cantidadPersonas: number = 1, mimeType: string = 'image/jpeg'): Promise<GeminiOcrResult> {
     if (!GEMINI_API_KEY) {
       throw new Error('Gemini API Key is missing. Check your environment variables.');
     }
@@ -37,7 +37,7 @@ export const GeminiService = {
   - Consumo de dulces, chocolates, galletas, chucherías o comida chatarra (como papitas, papas fritas, frituras, gomitas, etc.). Nota: La compra de refrescos/bebidas gaseosas normales SÍ está permitida y NO debe generar alerta.
   - Gastos excesivos o sin sentido comercial justificable.
   - Compras en tiendas de conveniencia (como Oxxo, 7-Eleven) o restaurantes de artículos que NO sean estrictamente alimentos (comidas/bebidas), por ejemplo: cargadores de celular, juguetes, medicamentos, cigarros, etc.
-  - Si se trata de consumo de alimentos (comida, restaurante, cafetería) y el monto total de consumo supera los $280 MXN, genera una alerta indicando que se excedió el límite general por comida de $280 MXN.
+  - Si se trata de consumo de alimentos (comida, restaurante, cafetería) y el monto total de consumo (incluyendo propina si la hubiera en el ticket) supera los $${280 * cantidadPersonas} MXN, genera una alerta indicando que se excedió el límite general por comida de $${280 * cantidadPersonas} MXN (límite de $280 MXN por persona, el cual incluye comida y propina, calculado para ${cantidadPersonas} personas).
   Si no detectas ninguna de estas infracciones de política, usa null)
 }`;
 

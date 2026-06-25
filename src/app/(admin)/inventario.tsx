@@ -12,11 +12,12 @@ import {
   Platform,
   TextInput,
   useWindowDimensions,
+  Pressable,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase } from '@/services/supabase';
+import { supabase, CatalogoItem } from '@/services/supabase';
 import CustomButton from '@/components/CustomButton';
 import CustomInput from '@/components/CustomInput';
 import { Ionicons } from '@expo/vector-icons';
@@ -118,6 +119,9 @@ export default function InventarioDashboard() {
 
   // Flujo Consumo / Salidas de Materiales
   const [consumoCliente, setConsumoCliente] = useState('');
+  const [clientes, setClientes] = useState<CatalogoItem[]>([]);
+  const [showCliDropdown, setShowCliDropdown] = useState(false);
+  const [clienteSearch, setClienteSearch] = useState('');
   const [consumoItems, setConsumoItems] = useState<ConsumoItem[]>([]);
   const [isSavingConsumo, setIsSavingConsumo] = useState(false);
   const [historialConsumo, setHistorialConsumo] = useState<any[]>([]);
@@ -138,8 +142,8 @@ export default function InventarioDashboard() {
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      // Cargar categorías, proveedores, productos e historial de consumo
-      const [catRes, provRes, prodRes, histRes] = await Promise.all([
+      // Cargar categorías, proveedores, productos, historial de consumo y clientes
+      const [catRes, provRes, prodRes, histRes, cliRes] = await Promise.all([
         supabase.from('categorias_productos').select('*').order('nombre'),
         supabase.from('proveedores').select('*').order('nombre'),
         supabase.from('productos').select('*').order('nombre_oficial'),
@@ -149,16 +153,19 @@ export default function InventarioDashboard() {
           .eq('tipo', 'SALIDA')
           .order('fecha', { ascending: false })
           .limit(50),
+        supabase.from('clientes').select('*').order('nombre'),
       ]);
 
       if (catRes.error) throw catRes.error;
       if (provRes.error) throw provRes.error;
       if (prodRes.error) throw prodRes.error;
+      if (cliRes.error) throw cliRes.error;
 
       setCategorias(catRes.data || []);
       setProveedores(provRes.data || []);
       setProductos(prodRes.data || []);
       setHistorialConsumo(histRes.data || []);
+      setClientes(cliRes.data || []);
     } catch (err: any) {
       console.error('Error al cargar datos de inventario:', err);
       Alert.alert('Error', err.message || 'No se pudieron recuperar los datos de inventario.');
@@ -444,6 +451,31 @@ export default function InventarioDashboard() {
       Alert.alert('Error', err.message || 'No se pudo guardar el proveedor.');
     } finally {
       setIsSavingNewProv(false);
+    }
+  };
+
+  const handleAddNewCliente = async (nombre: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('clientes')
+        .insert([{ nombre: nombre.trim() }])
+        .select();
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const newCli = data[0];
+        setClientes(prev => [...prev, newCli].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        setConsumoCliente(newCli.nombre);
+      } else {
+        const { data: allCli } = await supabase.from('clientes').select('*').order('nombre');
+        if (allCli) {
+          setClientes(allCli);
+          setConsumoCliente(nombre.trim());
+        }
+      }
+      setClienteSearch('');
+      setShowCliDropdown(false);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo agregar el cliente.');
     }
   };
 
@@ -1313,20 +1345,70 @@ export default function InventarioDashboard() {
       {/* VISTA 4: REGISTRAR CONSUMO */}
       {activeTab === 'consumo' && (
         <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Registrar Consumo de Materiales</Text>
-          <Text style={[styles.description, { color: themeColors.textSecondary }]}>
-            Genera un ticket de consumo para restar del inventario los productos y cantidades utilizados en un trabajo o servicio.
-          </Text>
+          <Pressable onPress={() => { setShowCliDropdown(false); setClienteSearch(''); }} style={{ flex: 1 }}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Registrar Consumo de Materiales</Text>
+            <Text style={[styles.description, { color: themeColors.textSecondary }]}>
+              Genera un ticket de consumo para restar del inventario los productos y cantidades utilizados en un trabajo o servicio.
+            </Text>
 
-          {/* Formulario de Metadatos */}
-          <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginBottom: Spacing.two, padding: Spacing.two }]}>
-            <CustomInput
-              label="Cliente o Referencia del Trabajo *"
-              placeholder="Ej. Instalación Residencial García / Proyecto Solar"
-              value={consumoCliente}
-              onChangeText={setConsumoCliente}
-            />
-          </View>
+            {/* Formulario de Metadatos */}
+            <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginBottom: Spacing.two, padding: Spacing.two }]}>
+              <View style={styles.customDropdownContainer}>
+                <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Cliente o Referencia del Trabajo *</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                  onPress={() => {
+                    setShowCliDropdown(!showCliDropdown);
+                  }}
+                >
+                  <Text style={{ color: consumoCliente ? themeColors.text : themeColors.textSecondary }}>
+                    {consumoCliente || 'Selecciona o escribe un cliente'}
+                  </Text>
+                  <Ionicons name={showCliDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                </TouchableOpacity>
+
+                {showCliDropdown && (
+                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                      <CustomInput
+                        placeholder="Buscar o agregar cliente..."
+                        value={clienteSearch}
+                        onChangeText={setClienteSearch}
+                        iconName="search-outline"
+                        style={{ margin: Spacing.one, height: 40 }}
+                      />
+                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                        {clienteSearch.trim().length > 0 && !clientes.some(c => c.nombre.toLowerCase() === clienteSearch.trim().toLowerCase()) && (
+                          <TouchableOpacity
+                            style={[styles.dropdownItem, { backgroundColor: themeColors.accent + '15' }]}
+                            onPress={() => handleAddNewCliente(clienteSearch)}
+                          >
+                            <Text style={{ color: themeColors.accent, fontWeight: '600' }}>
+                              ➕ Agregar "{clienteSearch.trim()}"
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {clientes
+                          .filter(cli => cli.nombre.toLowerCase().includes(clienteSearch.toLowerCase()))
+                          .map((cli) => (
+                            <TouchableOpacity
+                              key={cli.id}
+                              style={styles.dropdownItem}
+                              onPress={() => {
+                                setConsumoCliente(cli.nombre);
+                                setClienteSearch('');
+                                setShowCliDropdown(false);
+                              }}
+                            >
+                              <Text style={{ color: themeColors.text }}>{cli.nombre}</Text>
+                            </TouchableOpacity>
+                          ))}
+                      </ScrollView>
+                    </View>
+                  </Pressable>
+                )}
+              </View>
+            </View>
 
           {/* Botón para agregar producto */}
           <CustomButton
@@ -1442,8 +1524,9 @@ export default function InventarioDashboard() {
               </View>
             )}
           </View>
-        </ScrollView>
-      )}
+        </Pressable>
+      </ScrollView>
+    )}
 
       {/* ========== MODAL CRUD MANUAL ========== */}
       <Modal
@@ -1983,13 +2066,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
   },
   dropdownList: {
-    position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
+    position: 'relative',
     borderRadius: BorderRadius.small,
     borderWidth: 1,
-    zIndex: 99,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,

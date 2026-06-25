@@ -18,7 +18,7 @@ interface CustomInputProps extends TextInputProps {
   isPassword?: boolean;
 }
 
-export default function CustomInput({
+const CustomInput = React.forwardRef<TextInput, CustomInputProps>(({
   label,
   error,
   iconName,
@@ -26,7 +26,7 @@ export default function CustomInput({
   secureTextEntry,
   style,
   ...props
-}: CustomInputProps) {
+}, ref) => {
   const scheme = useColorScheme();
   const themeColors = Colors[scheme === 'dark' ? 'dark' : 'light'];
   const [isFocused, setIsFocused] = useState(false);
@@ -68,6 +68,7 @@ export default function CustomInput({
         )}
 
         <TextInput
+          ref={ref}
           style={[
             styles.input,
             { color: themeColors.text },
@@ -99,7 +100,9 @@ export default function CustomInput({
       {!!error && <Text style={[styles.errorText, { color: themeColors.danger }]}>{error}</Text>}
     </View>
   );
-}
+});
+
+export default CustomInput;
 
 const styles = StyleSheet.create({
   container: {

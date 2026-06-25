@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const passwordInputRef = useRef<any>(null);
 
   // Validaciones locales
   const [emailError, setEmailError] = useState('');
@@ -146,9 +147,13 @@ export default function LoginScreen() {
               if (emailError) setEmailError('');
             }}
             error={emailError}
+            returnKeyType="next"
+            onSubmitEditing={() => passwordInputRef.current?.focus()}
+            blurOnSubmit={false}
           />
 
           <CustomInput
+            ref={passwordInputRef}
             label="Contraseña"
             placeholder="••••••••"
             secureTextEntry
@@ -160,6 +165,8 @@ export default function LoginScreen() {
               if (passwordError) setPasswordError('');
             }}
             error={passwordError}
+            returnKeyType="go"
+            onSubmitEditing={handleLogin}
           />
 
           <CustomButton

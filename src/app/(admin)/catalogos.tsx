@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRouter } from 'expo-router';
@@ -351,54 +352,61 @@ export default function CatalogosManager() {
             </View>
 
             <ScrollView contentContainerStyle={{ gap: Spacing.three }} keyboardShouldPersistTaps="handled">
-              <CustomInput
-                label="Nombre del Elemento *"
-                placeholder="Ej. Papelería, Walmart, etc."
-                value={newItemName}
-                onChangeText={setNewItemName}
-                iconName="bookmark-outline"
-              />
+              <Pressable
+                onPress={() => setShowParentCatDropdown(false)}
+                style={{ flex: 1, gap: Spacing.three }}
+              >
+                <CustomInput
+                  label="Nombre del Elemento *"
+                  placeholder="Ej. Papelería, Walmart, etc."
+                  value={newItemName}
+                  onChangeText={setNewItemName}
+                  iconName="bookmark-outline"
+                />
 
-              {/* Lógica condicional para Subcategoría (pedir Categoría Padre) */}
-              {activeCatalog === 'subcategorias' && (
-                <View style={styles.customDropdownContainer}>
-                  <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría Padre *</Text>
-                  <TouchableOpacity
-                    style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
-                    onPress={() => setShowParentCatDropdown(!showParentCatDropdown)}
-                  >
-                    <Text style={{ color: selectedParentCatId ? themeColors.text : themeColors.textSecondary }}>
-                      {parentCatName || 'Selecciona categoría padre'}
-                    </Text>
-                    <Ionicons name={showParentCatDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
-                  </TouchableOpacity>
-                  {showParentCatDropdown && (
-                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                        {categorias.map((cat) => (
-                          <TouchableOpacity
-                            key={cat.id}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setSelectedParentCatId(cat.id);
-                              setShowParentCatDropdown(false);
-                            }}
-                          >
-                            <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              )}
+                {/* Lógica condicional para Subcategoría (pedir Categoría Padre) */}
+                {activeCatalog === 'subcategorias' && (
+                  <View style={styles.customDropdownContainer}>
+                    <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría Padre *</Text>
+                    <TouchableOpacity
+                      style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                      onPress={() => setShowParentCatDropdown(!showParentCatDropdown)}
+                    >
+                      <Text style={{ color: selectedParentCatId ? themeColors.text : themeColors.textSecondary }}>
+                        {parentCatName || 'Selecciona categoría padre'}
+                      </Text>
+                      <Ionicons name={showParentCatDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                    </TouchableOpacity>
+                    {showParentCatDropdown && (
+                      <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                        <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                          <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                            {categorias.map((cat) => (
+                              <TouchableOpacity
+                                key={cat.id}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  setSelectedParentCatId(cat.id);
+                                  setShowParentCatDropdown(false);
+                                }}
+                              >
+                                <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
 
-              <CustomButton
-                title="Guardar Elemento"
-                onPress={handleAddItem}
-                loading={isSaving}
-                style={{ marginTop: Spacing.two }}
-              />
+                <CustomButton
+                  title="Guardar Elemento"
+                  onPress={handleAddItem}
+                  loading={isSaving}
+                  style={{ marginTop: Spacing.two }}
+                />
+              </Pressable>
             </ScrollView>
           </View>
         </View>
@@ -437,54 +445,61 @@ export default function CatalogosManager() {
             </View>
 
             <ScrollView contentContainerStyle={{ gap: Spacing.three }} keyboardShouldPersistTaps="handled">
-              <CustomInput
-                label="Nombre del Elemento *"
-                placeholder="Ej. Papelería, Walmart, etc."
-                value={editItemName}
-                onChangeText={setEditItemName}
-                iconName="bookmark-outline"
-              />
+              <Pressable
+                onPress={() => setShowEditParentCatDropdown(false)}
+                style={{ flex: 1, gap: Spacing.three }}
+              >
+                <CustomInput
+                  label="Nombre del Elemento *"
+                  placeholder="Ej. Papelería, Walmart, etc."
+                  value={editItemName}
+                  onChangeText={setEditItemName}
+                  iconName="bookmark-outline"
+                />
 
-              {/* Lógica condicional para Subcategoría (pedir Categoría Padre) */}
-              {activeCatalog === 'subcategorias' && (
-                <View style={styles.customDropdownContainer}>
-                  <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría Padre *</Text>
-                  <TouchableOpacity
-                    style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
-                    onPress={() => setShowEditParentCatDropdown(!showEditParentCatDropdown)}
-                  >
-                    <Text style={{ color: editParentCatId ? themeColors.text : themeColors.textSecondary }}>
-                      {editParentCatName || 'Selecciona categoría padre'}
-                    </Text>
-                    <Ionicons name={showEditParentCatDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
-                  </TouchableOpacity>
-                  {showEditParentCatDropdown && (
-                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                        {categorias.map((cat) => (
-                          <TouchableOpacity
-                            key={cat.id}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setEditParentCatId(cat.id);
-                              setShowEditParentCatDropdown(false);
-                            }}
-                          >
-                            <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              )}
+                {/* Lógica condicional para Subcategoría (pedir Categoría Padre) */}
+                {activeCatalog === 'subcategorias' && (
+                  <View style={styles.customDropdownContainer}>
+                    <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>Categoría Padre *</Text>
+                    <TouchableOpacity
+                      style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                      onPress={() => setShowEditParentCatDropdown(!showEditParentCatDropdown)}
+                    >
+                      <Text style={{ color: editParentCatId ? themeColors.text : themeColors.textSecondary }}>
+                        {editParentCatName || 'Selecciona categoría padre'}
+                      </Text>
+                      <Ionicons name={showEditParentCatDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                    </TouchableOpacity>
+                    {showEditParentCatDropdown && (
+                      <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                        <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                          <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                            {categorias.map((cat) => (
+                              <TouchableOpacity
+                                key={cat.id}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  setEditParentCatId(cat.id);
+                                  setShowEditParentCatDropdown(false);
+                                }}
+                              >
+                                <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
 
-              <CustomButton
-                title="Guardar Cambios"
-                onPress={handleUpdateItem}
-                loading={isUpdating}
-                style={{ marginTop: Spacing.two }}
-              />
+                <CustomButton
+                  title="Guardar Cambios"
+                  onPress={handleUpdateItem}
+                  loading={isUpdating}
+                  style={{ marginTop: Spacing.two }}
+                />
+              </Pressable>
             </ScrollView>
           </View>
         </View>

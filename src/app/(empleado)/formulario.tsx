@@ -10,6 +10,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRouter } from 'expo-router';
@@ -83,6 +84,11 @@ export default function GastoForm() {
   const [scanSuccess, setScanSuccess] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
 
+  // Estados para compartir consumo con otros empleados
+  const [allUsers, setAllUsers] = useState<Usuario[]>([]);
+  const [selectedEmpleados, setSelectedEmpleados] = useState<Usuario[]>([]);
+  const [showEmpList, setShowEmpList] = useState(false);
+
   // Paso 2: Detalles
   const [monto, setMonto] = useState('');
   const [proveedor, setProveedor] = useState('');
@@ -104,6 +110,7 @@ export default function GastoForm() {
   const [fechaComprobante, setFechaComprobante] = useState(getTodayFriendly());
   const [sucursal, setSucursal] = useState('');
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'tarjeta_credito' | 'tarjeta_debito'>('efectivo');
+  const [tipoTarjeta, setTipoTarjeta] = useState<'BBVA' | 'AMEX' | 'MARRIOT' | 'BANORTE' | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateValue, setDateValue] = useState(new Date());
   const [alertaPolitica, setAlertaPolitica] = useState<string | null>(null);
@@ -114,6 +121,9 @@ export default function GastoForm() {
 
   // Alerta local por límites de alimentos según el Estado
   const [alertaLocal, setAlertaLocal] = useState<string | null>(null);
+
+  const [incluyePropina, setIncluyePropina] = useState<boolean | null>(null);
+  const [montoPropina, setMontoPropina] = useState<string>('');
 
 
 
@@ -144,6 +154,7 @@ export default function GastoForm() {
   const [selectedCategoria, setSelectedCategoria] = useState<string>('');
   const [selectedSubcategoria, setSelectedSubcategoria] = useState<string>('');
   const [selectedCliente, setSelectedCliente] = useState<string>('');
+  const [clienteSearch, setClienteSearch] = useState('');
   const [justificacion, setJustificacion] = useState('');
 
   // Dropdown list visibility toggles (Mock pickers since RN Picker is external)
@@ -154,15 +165,19 @@ export default function GastoForm() {
   useEffect(() => {
     const alerts: string[] = [];
 
-    // 1. Validar límite de alimentos general de $280 MXN
+    // 1. Validar límite de alimentos general de $280 MXN por persona (comida + propina)
     const valMonto = Number(monto);
     if (valMonto && !isNaN(valMonto) && selectedCategoria) {
       const isAlimentos = selectedCategoria.toLowerCase().includes('alimento') ||
                           selectedCategoria.toLowerCase().includes('comida') ||
                           selectedCategoria.toLowerCase().includes('consumo');
 
-      if (isAlimentos && valMonto > 280) {
-        alerts.push(`Límite de alimentos excedido: el límite general por comida es de $280 MXN (Consumo: $${valMonto} MXN)`);
+      const cantidadPersonas = 1 + selectedEmpleados.length;
+      const limiteCalculado = 280 * cantidadPersonas;
+      const totalGasto = valMonto + (incluyePropina === false ? Number(montoPropina || 0) : 0);
+
+      if (isAlimentos && totalGasto > limiteCalculado) {
+        alerts.push(`Límite de alimentos excedido: el límite general por comida es de $${limiteCalculado} MXN para ${cantidadPersonas} personas (Total con Propina: $${totalGasto} MXN)`);
       }
     }
 
@@ -182,19 +197,21 @@ export default function GastoForm() {
     } else {
       setAlertaLocal(null);
     }
-  }, [monto, selectedCategoria, justificacion, proveedor]);
+  }, [monto, selectedCategoria, justificacion, proveedor, selectedEmpleados]);
 
   const loadCatalogos = async () => {
     try {
-      const [catRes, subRes, cliRes] = await Promise.all([
+      const [catRes, subRes, cliRes, usrRes] = await Promise.all([
         supabase.from('categorias').select('*').order('nombre'),
         supabase.from('subcategorias').select('*').order('nombre'),
         supabase.from('clientes').select('*').order('nombre'),
+        supabase.from('usuarios').select('*').order('nombre'),
       ]);
 
       if (catRes.data) setCategorias(catRes.data);
       if (subRes.data) setSubcategorias(subRes.data);
       if (cliRes.data) setClientes(cliRes.data);
+      if (usrRes.data) setAllUsers(usrRes.data);
     } catch (err) {
       console.error('Error loading catalogs:', err);
     }
@@ -351,7 +368,7 @@ export default function GastoForm() {
     if (!imageBase64) return;
     setIsScanning(true);
     try {
-      const result = await GeminiService.scanTicket(imageBase64);
+      const result = await GeminiService.scanTicket(imageBase64, 1 + selectedEmpleados.length);
       
       if (result.monto) setMonto(result.monto.toString());
       if (result.proveedor) setProveedor(result.proveedor);
@@ -475,6 +492,31 @@ export default function GastoForm() {
     (s) => s.categoria_id === activeCategoriaId
   );
 
+  const handleAddNewCliente = async (nombre: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('clientes')
+        .insert([{ nombre: nombre.trim() }])
+        .select();
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const newCli = data[0];
+        setClientes(prev => [...prev, newCli].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        setSelectedCliente(newCli.nombre);
+      } else {
+        const { data: allCli } = await supabase.from('clientes').select('*').order('nombre');
+        if (allCli) {
+          setClientes(allCli);
+          setSelectedCliente(nombre.trim());
+        }
+      }
+      setClienteSearch('');
+      setShowCliDropdown(false);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo agregar el cliente.');
+    }
+  };
+
   // Guardar Gasto (Finalizar)
   const handleSaveGasto = async () => {
     if (!currentUser) return;
@@ -525,7 +567,19 @@ export default function GastoForm() {
     
     const dbFecha = formatFriendlyToDb(fechaComprobante);
     
+    const totalGasto = Number(monto) + (incluyePropina === false ? Number(montoPropina || 0) : 0);
+    
     let finalJustificacion = justificacion.trim();
+    if (selectedEmpleados.length > 0) {
+      const nombresShared = selectedEmpleados.map(e => e.nombre).join(', ');
+      finalJustificacion = `${finalJustificacion}\n\n[Consumo compartido con: ${nombresShared} (Total: ${1 + selectedEmpleados.length} personas)]`;
+    }
+    if (incluyePropina !== null) {
+      finalJustificacion = `${finalJustificacion}\n\n[Propina incluida en ticket: ${incluyePropina ? 'Sí' : 'No'}]`;
+      if (incluyePropina === false && montoPropina) {
+        finalJustificacion = `${finalJustificacion}\n\n[Monto de propina dejado aparte: $${montoPropina} MXN]`;
+      }
+    }
     const combinedAlert = [alertaPolitica, alertaLocal].filter(Boolean).join(' | ');
     if (combinedAlert) {
       finalJustificacion = `[ALERTA IA: ${combinedAlert}]\n\n${finalJustificacion}`;
@@ -534,7 +588,7 @@ export default function GastoForm() {
     const gastoPayload = {
       empleado_id: currentUser.id,
       empleado_nombre: currentUser.nombre,
-      monto: Number(monto),
+      monto: totalGasto,
       categoria: selectedCategoria,
       subcategoria: selectedSubcategoria || null,
       metodo_pago: metodoPago,
@@ -543,7 +597,7 @@ export default function GastoForm() {
       proveedor: proveedor.trim() || null,
       cliente: selectedCliente || null,
       sucursal: sucursal.trim() || null,
-      tipo_tarjeta: null,
+      tipo_tarjeta: tipoTarjeta,
       ubicacion_registro: 'Móvil',
       estado: selectedEstado || null,
       facturado: facturado,
@@ -624,9 +678,19 @@ export default function GastoForm() {
   };
 
   const nextStep = () => {
-    if (currentStep === 1 && !imageUri) {
-      Alert.alert('Evidencia requerida', 'Por favor toma una fotografía o selecciona un ticket.');
-      return;
+    if (currentStep === 1) {
+      if (!imageUri) {
+        Alert.alert('Evidencia requerida', 'Por favor toma una fotografía o selecciona un ticket.');
+        return;
+      }
+      if (incluyePropina === null) {
+        Alert.alert('Validación', 'Por favor especifica si el ticket incluye propina.');
+        return;
+      }
+      if (incluyePropina === false && (!montoPropina || isNaN(Number(montoPropina)) || Number(montoPropina) < 0)) {
+        Alert.alert('Validación', 'Por favor ingresa un monto de propina válido.');
+        return;
+      }
     }
     if (currentStep === 2) {
       if (!monto || isNaN(Number(monto))) {
@@ -640,6 +704,10 @@ export default function GastoForm() {
       }
       if (!selectedEstado) {
         Alert.alert('Validación', 'Por favor selecciona el Estado de la República.');
+        return;
+      }
+      if (metodoPago !== 'efectivo' && !tipoTarjeta) {
+        Alert.alert('Validación', 'Por favor selecciona la tarjeta utilizada (BBVA, AMEX, MARRIOT, BANORTE).');
         return;
       }
       if (facturado === null) {
@@ -663,6 +731,8 @@ export default function GastoForm() {
   };
 
 
+  const isAnyDropdownOpen = !!(showEmpList || showEstDropdown || showCatDropdown || showSubDropdown || showCliDropdown);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
@@ -678,8 +748,21 @@ export default function GastoForm() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <StepIndicator
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Pressable
+            onPress={() => {
+              setShowEmpList(false);
+              setShowEstDropdown(false);
+              setShowCatDropdown(false);
+              setShowSubDropdown(false);
+              setShowCliDropdown(false);
+            }}
+            style={{ flex: 1 }}
+          >
+            <StepIndicator
             currentStep={currentStep}
             steps={['Evidencia', 'Detalles', 'Categoría']}
           />
@@ -711,6 +794,8 @@ export default function GastoForm() {
                         setImageBase64(null);
                         setScanSuccess(false);
                         setAlertaPolitica(null);
+                        setIncluyePropina(null);
+                        setMontoPropina('');
                       }}
                     >
                       <Ionicons name="trash" size={20} color="#ffffff" />
@@ -744,8 +829,130 @@ export default function GastoForm() {
                 </TouchableOpacity>
               </View>
 
+              {/* Selector de Empleados Compartidos */}
+              <View style={[styles.customDropdownContainer, { marginTop: Spacing.two, zIndex: 50 }]}>
+                <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>
+                  ¿Con cuántos empleados compartiste este consumo?
+                </Text>
+                <TouchableOpacity
+                  style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                  onPress={() => setShowEmpList(!showEmpList)}
+                >
+                  <Text style={{ color: selectedEmpleados.length > 0 ? themeColors.text : themeColors.textSecondary }}>
+                    {selectedEmpleados.length === 0
+                      ? 'Solo yo (1 persona)'
+                      : `Yo + ${selectedEmpleados.length} empleado(s) (${1 + selectedEmpleados.length} personas)`
+                    }
+                  </Text>
+                  <Ionicons name={showEmpList ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                </TouchableOpacity>
+
+                {showEmpList && (
+                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, maxHeight: 200 }]}>
+                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                        {allUsers
+                          .filter(u => u.id !== currentUser?.id)
+                          .map((user) => {
+                            const isSelected = selectedEmpleados.some(e => e.id === user.id);
+                            return (
+                              <TouchableOpacity
+                                key={user.id}
+                                style={[
+                                  styles.dropdownItem,
+                                  {
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                  }
+                                ]}
+                                onPress={() => {
+                                  if (isSelected) {
+                                    setSelectedEmpleados(prev => prev.filter(e => e.id !== user.id));
+                                  } else {
+                                    setSelectedEmpleados(prev => [...prev, user]);
+                                  }
+                                }}
+                              >
+                                <Text style={{ color: themeColors.text }}>{user.nombre}</Text>
+                                <Ionicons
+                                  name={isSelected ? 'checkbox-outline' : 'square-outline'}
+                                  size={20}
+                                  color={isSelected ? themeColors.accent : themeColors.textSecondary}
+                                />
+                              </TouchableOpacity>
+                            );
+                          })}
+                      </ScrollView>
+                    </View>
+                  </Pressable>
+                )}
+              </View>
+
               {imageUri && (
-                <View style={styles.scanWrapper}>
+                <>
+                  <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginBottom: Spacing.two }]}>
+                    <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>
+                      ¿El ticket incluye propina? *
+                    </Text>
+                    <View style={styles.paymentSelector}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIncluyePropina(true);
+                          setMontoPropina('');
+                        }}
+                        style={[
+                          styles.paymentOption,
+                          {
+                            backgroundColor: incluyePropina === true ? themeColors.accent : themeColors.backgroundElement,
+                            borderColor: incluyePropina === true ? 'transparent' : themeColors.border,
+                            flex: 1,
+                            alignItems: 'center',
+                            paddingVertical: Spacing.one,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.paymentOptionText, { color: incluyePropina === true ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                          Sí
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIncluyePropina(false);
+                        }}
+                        style={[
+                          styles.paymentOption,
+                          {
+                            backgroundColor: incluyePropina === false ? themeColors.accent : themeColors.backgroundElement,
+                            borderColor: incluyePropina === false ? 'transparent' : themeColors.border,
+                            flex: 1,
+                            alignItems: 'center',
+                            paddingVertical: Spacing.one,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.paymentOptionText, { color: incluyePropina === false ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                          No
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {incluyePropina === false && (
+                      <View style={{ marginTop: Spacing.two }}>
+                        <CustomInput
+                          label="¿Cuánto se dejó de propina? ($ MXN) *"
+                          placeholder="0.00"
+                          keyboardType="numeric"
+                          value={montoPropina}
+                          onChangeText={setMontoPropina}
+                          iconName="logo-usd"
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.scanWrapper}>
                   {isScanning ? (
                     <View style={styles.scanLoader}>
                       <ActivityIndicator size="small" color={themeColors.accent} />
@@ -767,7 +974,8 @@ export default function GastoForm() {
                     </Text>
                   )}
                 </View>
-              )}
+              </>
+            )}
 
               <View style={styles.footerNav}>
                 <View style={{ flex: 1 }} />
@@ -803,6 +1011,12 @@ export default function GastoForm() {
                 onChangeText={setMonto}
                 iconName="logo-usd"
               />
+
+              {incluyePropina === false && montoPropina ? (
+                <Text style={{ fontSize: 13, color: themeColors.textSecondary, marginTop: -Spacing.one, marginBottom: Spacing.two, fontStyle: 'italic', paddingLeft: Spacing.one }}>
+                  Total del Gasto (Ticket + Propina): ${(Number(monto || 0) + Number(montoPropina)).toFixed(2)} MXN
+                </Text>
+              ) : null}
 
               {Platform.OS === 'web' ? (
                 <CustomInput
@@ -887,22 +1101,24 @@ export default function GastoForm() {
                   <Ionicons name={showEstDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
                 </TouchableOpacity>
                 {showEstDropdown && (
-                  <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                      {ESTADOS_MEXICO.map((est) => (
-                        <TouchableOpacity
-                          key={est}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setSelectedEstado(est);
-                            setShowEstDropdown(false);
-                          }}
-                        >
-                          <Text style={{ color: themeColors.text }}>{est}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
+                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                        {ESTADOS_MEXICO.map((est) => (
+                          <TouchableOpacity
+                            key={est}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setSelectedEstado(est);
+                              setShowEstDropdown(false);
+                            }}
+                          >
+                            <Text style={{ color: themeColors.text }}>{est}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </Pressable>
                 )}
               </View>
 
@@ -911,7 +1127,10 @@ export default function GastoForm() {
                 <Text style={[styles.selectorLabel, { color: themeColors.text }]}>Método de Pago *</Text>
                 <View style={styles.paymentSelector}>
                   <TouchableOpacity
-                    onPress={() => setMetodoPago('efectivo')}
+                    onPress={() => {
+                      setMetodoPago('efectivo');
+                      setTipoTarjeta(null);
+                    }}
                     style={[
                       styles.paymentOption,
                       {
@@ -952,44 +1171,73 @@ export default function GastoForm() {
 
               {/* Sub-selector si se elige Tarjeta */}
               {metodoPago !== 'efectivo' && (
-                <View style={[styles.selectorGroup, { marginTop: -Spacing.one, paddingLeft: Spacing.two, borderLeftWidth: 2, borderLeftColor: themeColors.accent }]}>
-                  <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13 }]}>Tipo de Tarjeta *</Text>
-                  <View style={styles.paymentSelector}>
-                    <TouchableOpacity
-                      onPress={() => setMetodoPago('tarjeta_debito')}
-                      style={[
-                        styles.paymentOption,
-                        {
-                          backgroundColor: metodoPago === 'tarjeta_debito' ? themeColors.accent : themeColors.backgroundElement,
-                          borderColor: metodoPago === 'tarjeta_debito' ? 'transparent' : themeColors.border,
-                          flex: 1,
-                          alignItems: 'center',
-                          paddingVertical: Spacing.one,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.paymentOptionText, { color: metodoPago === 'tarjeta_debito' ? '#ffffff' : themeColors.text, fontSize: 11 }]}>
-                        Débito
-                      </Text>
-                    </TouchableOpacity>
+                <View style={[styles.selectorGroup, { marginTop: -Spacing.one, paddingLeft: Spacing.two, borderLeftWidth: 2, borderLeftColor: themeColors.accent, gap: Spacing.two }]}>
+                  <View>
+                    <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>Tipo de Tarjeta *</Text>
+                    <View style={styles.paymentSelector}>
+                      <TouchableOpacity
+                        onPress={() => setMetodoPago('tarjeta_debito')}
+                        style={[
+                          styles.paymentOption,
+                          {
+                            backgroundColor: metodoPago === 'tarjeta_debito' ? themeColors.accent : themeColors.backgroundElement,
+                            borderColor: metodoPago === 'tarjeta_debito' ? 'transparent' : themeColors.border,
+                            flex: 1,
+                            alignItems: 'center',
+                            paddingVertical: Spacing.one,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.paymentOptionText, { color: metodoPago === 'tarjeta_debito' ? '#ffffff' : themeColors.text, fontSize: 11 }]}>
+                          Débito
+                        </Text>
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      onPress={() => setMetodoPago('tarjeta_credito')}
-                      style={[
-                        styles.paymentOption,
-                        {
-                          backgroundColor: metodoPago === 'tarjeta_credito' ? themeColors.accent : themeColors.backgroundElement,
-                          borderColor: metodoPago === 'tarjeta_credito' ? 'transparent' : themeColors.border,
-                          flex: 1,
-                          alignItems: 'center',
-                          paddingVertical: Spacing.one,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.paymentOptionText, { color: metodoPago === 'tarjeta_credito' ? '#ffffff' : themeColors.text, fontSize: 11 }]}>
-                        Crédito
-                      </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setMetodoPago('tarjeta_credito')}
+                        style={[
+                          styles.paymentOption,
+                          {
+                            backgroundColor: metodoPago === 'tarjeta_credito' ? themeColors.accent : themeColors.backgroundElement,
+                            borderColor: metodoPago === 'tarjeta_credito' ? 'transparent' : themeColors.border,
+                            flex: 1,
+                            alignItems: 'center',
+                            paddingVertical: Spacing.one,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.paymentOptionText, { color: metodoPago === 'tarjeta_credito' ? '#ffffff' : themeColors.text, fontSize: 11 }]}>
+                          Crédito
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>Selecciona la Tarjeta *</Text>
+                    <View style={styles.paymentSelector}>
+                      {(['BBVA', 'AMEX', 'MARRIOT', 'BANORTE'] as const).map((card) => (
+                        <TouchableOpacity
+                          key={card}
+                          onPress={() => setTipoTarjeta(card)}
+                          style={[
+                            styles.paymentOption,
+                            {
+                              backgroundColor: tipoTarjeta === card ? themeColors.accent : themeColors.backgroundElement,
+                              borderColor: tipoTarjeta === card ? 'transparent' : themeColors.border,
+                              flex: 1,
+                              minWidth: '45%',
+                              alignItems: 'center',
+                              paddingVertical: Spacing.one,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.paymentOptionText, { color: tipoTarjeta === card ? '#ffffff' : themeColors.text, fontSize: 11 }]}>
+                            {card}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
                 </View>
               )}
@@ -1152,23 +1400,25 @@ export default function GastoForm() {
                   <Ionicons name={showCatDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
                 </TouchableOpacity>
                 {showCatDropdown && (
-                  <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                      {categorias.map((cat) => (
-                        <TouchableOpacity
-                          key={cat.id}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setSelectedCategoria(cat.nombre);
-                            setSelectedSubcategoria(''); // Limpiar subcategoría al cambiar de categoría
-                            setShowCatDropdown(false);
-                          }}
-                        >
-                          <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
+                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                        {categorias.map((cat) => (
+                          <TouchableOpacity
+                            key={cat.id}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setSelectedCategoria(cat.nombre);
+                              setSelectedSubcategoria(''); // Limpiar subcategoría al cambiar de categoría
+                              setShowCatDropdown(false);
+                            }}
+                          >
+                            <Text style={{ color: themeColors.text }}>{cat.nombre}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </Pressable>
                 )}
               </View>
 
@@ -1191,28 +1441,30 @@ export default function GastoForm() {
                     <Ionicons name={showSubDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
                   </TouchableOpacity>
                   {showSubDropdown && (
-                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                        {filteredSubcategorias.length > 0 ? (
-                          filteredSubcategorias.map((sub) => (
-                            <TouchableOpacity
-                              key={sub.id}
-                              style={styles.dropdownItem}
-                              onPress={() => {
-                                setSelectedSubcategoria(sub.nombre);
-                                setShowSubDropdown(false);
-                              }}
-                            >
-                              <Text style={{ color: themeColors.text }}>{sub.nombre}</Text>
-                            </TouchableOpacity>
-                          ))
-                        ) : (
-                          <View style={styles.dropdownItem}>
-                            <Text style={{ color: themeColors.textSecondary }}>Sin subcategorías para esta sección</Text>
-                          </View>
-                        )}
-                      </ScrollView>
-                    </View>
+                    <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                      <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                        <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                          {filteredSubcategorias.length > 0 ? (
+                            filteredSubcategorias.map((sub) => (
+                              <TouchableOpacity
+                                key={sub.id}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  setSelectedSubcategoria(sub.nombre);
+                                  setShowSubDropdown(false);
+                                }}
+                              >
+                                <Text style={{ color: themeColors.text }}>{sub.nombre}</Text>
+                              </TouchableOpacity>
+                            ))
+                          ) : (
+                            <View style={styles.dropdownItem}>
+                              <Text style={{ color: themeColors.textSecondary }}>Sin subcategorías para esta sección</Text>
+                            </View>
+                          )}
+                        </ScrollView>
+                      </View>
+                    </Pressable>
                   )}
                 </View>
               )}
@@ -1235,22 +1487,44 @@ export default function GastoForm() {
                   <Ionicons name={showCliDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
                 </TouchableOpacity>
                 {showCliDropdown && (
-                  <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
-                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
-                      {clientes.map((cli) => (
-                        <TouchableOpacity
-                          key={cli.id}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setSelectedCliente(cli.nombre);
-                            setShowCliDropdown(false);
-                          }}
-                        >
-                          <Text style={{ color: themeColors.text }}>{cli.nombre}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
+                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                      <CustomInput
+                        placeholder="Buscar o agregar cliente..."
+                        value={clienteSearch}
+                        onChangeText={setClienteSearch}
+                        iconName="search-outline"
+                        style={{ margin: Spacing.one, height: 40 }}
+                      />
+                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                        {clienteSearch.trim().length > 0 && !clientes.some(c => c.nombre.toLowerCase() === clienteSearch.trim().toLowerCase()) && (
+                          <TouchableOpacity
+                            style={[styles.dropdownItem, { backgroundColor: themeColors.accent + '15' }]}
+                            onPress={() => handleAddNewCliente(clienteSearch)}
+                          >
+                            <Text style={{ color: themeColors.accent, fontWeight: '600' }}>
+                              ➕ Agregar "{clienteSearch.trim()}"
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {clientes
+                          .filter(cli => cli.nombre.toLowerCase().includes(clienteSearch.toLowerCase()))
+                          .map((cli) => (
+                            <TouchableOpacity
+                              key={cli.id}
+                              style={styles.dropdownItem}
+                              onPress={() => {
+                                setSelectedCliente(cli.nombre);
+                                setClienteSearch('');
+                                setShowCliDropdown(false);
+                              }}
+                            >
+                              <Text style={{ color: themeColors.text }}>{cli.nombre}</Text>
+                            </TouchableOpacity>
+                          ))}
+                      </ScrollView>
+                    </View>
+                  </Pressable>
                 )}
               </View>
 
@@ -1282,7 +1556,8 @@ export default function GastoForm() {
               </View>
             </View>
           )}
-        </ScrollView>
+        </Pressable>
+      </ScrollView>
       </KeyboardAvoidingView>
 
       <ImageViewerModal
@@ -1298,6 +1573,11 @@ export default function GastoForm() {
 }
 
 const styles = StyleSheet.create({
+  innerCard: {
+    padding: Spacing.three,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+  },
   container: {
     flex: 1,
   },
@@ -1459,6 +1739,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
   },
   dropdownList: {
+    position: 'relative',
     marginTop: Spacing.one,
     borderRadius: BorderRadius.medium,
     borderWidth: 1,
