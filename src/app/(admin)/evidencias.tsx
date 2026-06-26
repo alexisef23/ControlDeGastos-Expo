@@ -394,30 +394,82 @@ export default function AdminEvidenciasScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.detailItem}>
-                    <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Descripción del Trabajo</Text>
-                    <Text style={[styles.detailValue, { color: themeColors.text }]}>
-                      {selectedEvidencia.descripcion_trabajo}
-                    </Text>
-                  </View>
+                  {(() => {
+                    let listTrabajos = [];
+                    let isJson = false;
+                    try {
+                      if (selectedEvidencia.descripcion_trabajo && selectedEvidencia.descripcion_trabajo.trim().startsWith('[')) {
+                        listTrabajos = JSON.parse(selectedEvidencia.descripcion_trabajo);
+                        isJson = true;
+                      }
+                    } catch (e) {}
 
-                  {selectedEvidencia.materiales_usados && (
-                    <View style={styles.detailItem}>
-                      <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Materiales Utilizados</Text>
-                      <Text style={[styles.detailValue, { color: themeColors.text }]}>
-                        {selectedEvidencia.materiales_usados}
-                      </Text>
-                    </View>
-                  )}
+                    if (isJson && listTrabajos.length > 0) {
+                      return (
+                        <View style={{ marginTop: Spacing.two, marginBottom: Spacing.two }}>
+                          <Text style={[styles.detailLabel, { color: themeColors.textSecondary, marginBottom: Spacing.one }]}>
+                            Trabajos Realizados
+                          </Text>
+                          {listTrabajos.map((t: any, index: number) => (
+                            <View key={index} style={{
+                              marginBottom: Spacing.two,
+                              padding: Spacing.two,
+                              borderWidth: 1,
+                              borderColor: themeColors.border,
+                              borderRadius: BorderRadius.medium,
+                              backgroundColor: themeColors.backgroundElement
+                            }}>
+                              <Text style={{ fontWeight: '700', fontSize: 13, color: themeColors.accent, marginBottom: 4 }}>
+                                Trabajo #{index + 1}
+                              </Text>
+                              <Text style={{ fontSize: 13, color: themeColors.text, marginBottom: 2 }}>
+                                <Text style={{ fontWeight: '600' }}>Descripción: </Text>{t.descripcion}
+                              </Text>
+                              {t.materiales && (
+                                <Text style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 2 }}>
+                                  <Text style={{ fontWeight: '600' }}>Materiales: </Text>{t.materiales}
+                                </Text>
+                              )}
+                              {(t.solucion || t.observaciones) && (
+                                <Text style={{ fontSize: 12, color: themeColors.textSecondary }}>
+                                  <Text style={{ fontWeight: '600' }}>Solución: </Text>{t.solucion || t.observaciones}
+                                </Text>
+                              )}
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    }
 
-                  {selectedEvidencia.observaciones && (
-                    <View style={styles.detailItem}>
-                      <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Observaciones</Text>
-                      <Text style={[styles.detailValue, { color: themeColors.text }]}>
-                        {selectedEvidencia.observaciones}
-                      </Text>
-                    </View>
-                  )}
+                    return (
+                      <>
+                        <View style={styles.detailItem}>
+                          <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Descripción del Trabajo</Text>
+                          <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                            {selectedEvidencia.descripcion_trabajo}
+                          </Text>
+                        </View>
+
+                        {selectedEvidencia.materiales_usados && (
+                          <View style={styles.detailItem}>
+                            <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Materiales Utilizados</Text>
+                            <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                              {selectedEvidencia.materiales_usados}
+                            </Text>
+                          </View>
+                        )}
+
+                        {selectedEvidencia.observaciones && (
+                          <View style={styles.detailItem}>
+                            <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Solución</Text>
+                            <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                              {selectedEvidencia.observaciones}
+                            </Text>
+                          </View>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {selectedEvidencia.fotos_adicionales_urls && selectedEvidencia.fotos_adicionales_urls.length > 0 && (
                     <View style={styles.detailItem}>

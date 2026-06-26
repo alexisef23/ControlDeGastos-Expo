@@ -111,7 +111,13 @@ export const GeminiService = {
   async generateTechnicalSummary(
     antesBase64: string | null,
     despuesBase64: string | null,
-    detalles: { cliente: string; descripcion_trabajo: string; materiales_usados?: string | null; observaciones?: string | null }
+    detalles: {
+      cliente: string;
+      descripcion_trabajo: string;
+      materiales_usados?: string | null;
+      observaciones?: string | null;
+      trabajos?: { descripcion: string; materiales?: string | null; observaciones?: string | null; solucion?: string | null }[];
+    }
   ): Promise<string> {
     if (!GEMINI_API_KEY) {
       throw new Error('Gemini API Key is missing. Check your environment variables.');
@@ -119,21 +125,35 @@ export const GeminiService = {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
+    let trabajosFormatted = '';
+    if (detalles.trabajos && detalles.trabajos.length > 0) {
+      trabajosFormatted = detalles.trabajos.map((t, idx) => `
+Trabajo #${idx + 1}:
+- Descripción: ${t.descripcion}
+- Materiales utilizados: ${t.materiales || 'Ninguno'}
+- Solución: ${t.solucion || t.observaciones || 'Ninguna'}
+`).join('\n');
+    } else {
+      trabajosFormatted = `
+Trabajo Realizado:
+- Descripción: ${detalles.descripcion_trabajo}
+- Materiales utilizados: ${detalles.materiales_usados || 'Ninguno'}
+- Solución: ${detalles.observaciones || 'Ninguna'}`;
+    }
+
     const prompt = `Actúa como un supervisor técnico o auditor de control de calidad. Analiza la información y las fotos de evidencia proporcionadas (del ANTES y DESPUÉS del trabajo) y genera un reporte técnico formal, conciso y profesional en español.
 
 Detalles del servicio registrado:
 - Cliente / Ubicación: ${detalles.cliente}
-- Descripción inicial del trabajo: ${detalles.descripcion_trabajo}
-- Materiales utilizados: ${detalles.materiales_usados || 'Ninguno'}
-- Observaciones del técnico: ${detalles.observaciones || 'Ninguna'}
+${trabajosFormatted}
 
 Instrucciones para el reporte:
 1. Analiza visualmente las fotos del "Antes" (si se proporciona) y del "Después" (si se proporciona) y compáralas.
-2. Redacta un reporte muy breve, directo y estructurado (máximo 80-100 palabras).
+2. Redacta un reporte muy breve, directo y estructurado (máximo 120-150 palabras). Si hay múltiples trabajos, sintetiza la información de forma unificada pero clara.
 3. Utiliza formato markdown simple:
    - Usa **negritas** para resaltar subtítulos (ej: **Resumen de Trabajo**, **Resultado Visual**, **Conclusiones**).
    - Usa viñetas (- ) para enumerar puntos clave si es necesario.
-4. El tono debe ser formal y técnico. Evita introducciones o saludos. Debe ser muy sintetizado para que el reporte impreso final quepa estrictamente en una sola página.
+4. El tono debe ser formal y técnico. Evita introducciones o saludos. Debe ser muy sintetizado para que el reporte impreso final quepa en una sola página.
 5. Devuelve únicamente el texto del reporte en markdown limpio.`;
 
     const parts: any[] = [{ text: prompt }];

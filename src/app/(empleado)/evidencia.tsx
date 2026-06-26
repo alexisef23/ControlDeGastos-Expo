@@ -44,9 +44,9 @@ export default function EvidenciaForm() {
 
   // Paso 2: Detalles del Trabajo
   const [cliente, setCliente] = useState('');
-  const [descripcionTrabajo, setDescripcionTrabajo] = useState('');
-  const [materialesUsados, setMaterialesUsados] = useState('');
-  const [observaciones, setObservaciones] = useState('');
+  const [trabajos, setTrabajos] = useState<{ descripcion: string; materiales: string; solucion: string }[]>([
+    { descripcion: '', materiales: '', solucion: '' }
+  ]);
 
   // Paso 3: Reporte IA y Exportación
   const [resumenIA, setResumenIA] = useState<string | null>(null);
@@ -173,8 +173,14 @@ export default function EvidenciaForm() {
   };
 
   const generateAIAnalysis = async () => {
-    if (!cliente.trim() || !descripcionTrabajo.trim()) {
-      Alert.alert('Validación', 'Por favor llena el nombre del cliente y la descripción del trabajo.');
+    if (!cliente.trim()) {
+      Alert.alert('Validación', 'Por favor llena el nombre del cliente.');
+      return;
+    }
+
+    const hasEmptyFields = trabajos.some(t => !t.descripcion.trim() || !t.solucion.trim());
+    if (hasEmptyFields) {
+      Alert.alert('Validación', 'Por favor llena la descripción y la solución para todos los trabajos.');
       return;
     }
 
@@ -185,9 +191,12 @@ export default function EvidenciaForm() {
         imageBase64Despues,
         {
           cliente: cliente.trim(),
-          descripcion_trabajo: descripcionTrabajo.trim(),
-          materiales_usados: materialesUsados.trim() || null,
-          observaciones: observaciones.trim() || null,
+          descripcion_trabajo: '',
+          trabajos: trabajos.map(t => ({
+            descripcion: t.descripcion.trim(),
+            materiales: t.materiales.trim() || null,
+            solucion: t.solucion.trim() || null,
+          }))
         }
       );
       setResumenIA(responseText);
@@ -202,12 +211,26 @@ export default function EvidenciaForm() {
   const handleExportPDF = async () => {
     if (!resumenIA) return;
     try {
+      const allMateriales = trabajos
+        .map(t => t.materiales.trim())
+        .filter(Boolean)
+        .join(', ');
+      
+      const allSoluciones = trabajos
+        .map((t, i) => t.solucion.trim() ? `Trabajo #${i + 1}: ${t.solucion.trim()}` : '')
+        .filter(Boolean)
+        .join('\n');
+
       const evData = {
         empleado_id: currentUser?.id || '',
         cliente: cliente.trim(),
-        descripcion_trabajo: descripcionTrabajo.trim(),
-        materiales_usados: materialesUsados.trim() || null,
-        observaciones: observaciones.trim() || null,
+        descripcion_trabajo: JSON.stringify(trabajos.map(t => ({
+          descripcion: t.descripcion.trim(),
+          materiales: t.materiales.trim() || null,
+          solucion: t.solucion.trim() || null,
+        }))),
+        materiales_usados: allMateriales || null,
+        observaciones: allSoluciones || null,
         resumen_ia: resumenIA,
       };
 
@@ -300,14 +323,28 @@ export default function EvidenciaForm() {
         }
       }
 
+      const allMateriales = trabajos
+        .map(t => t.materiales.trim())
+        .filter(Boolean)
+        .join(', ');
+      
+      const allSoluciones = trabajos
+        .map((t, i) => t.solucion.trim() ? `Trabajo #${i + 1}: ${t.solucion.trim()}` : '')
+        .filter(Boolean)
+        .join('\n');
+
       const { error: dbError } = await supabase.from('evidencias').insert([
         {
           empleado_id: currentUser.id,
           empleado_nombre: currentUser.nombre,
           cliente: cliente.trim(),
-          descripcion_trabajo: descripcionTrabajo.trim(),
-          materiales_usados: materialesUsados.trim() || null,
-          observaciones: observaciones.trim() || null,
+          descripcion_trabajo: JSON.stringify(trabajos.map(t => ({
+            descripcion: t.descripcion.trim(),
+            materiales: t.materiales.trim() || null,
+            solucion: t.solucion.trim() || null,
+          }))),
+          materiales_usados: allMateriales || null,
+          observaciones: allSoluciones || null,
           foto_antes_url: fotoAntesUrl,
           foto_despues_url: fotoDespuesUrl,
           fotos_adicionales_urls: fotosAdicionalesUrls.length > 0 ? fotosAdicionalesUrls : null,
@@ -537,7 +574,7 @@ export default function EvidenciaForm() {
                 2. Detalles de la Intervención
               </Text>
               <Text style={[styles.subtitleText, { color: themeColors.textSecondary }]}>
-                Proporciona los datos del cliente y describe brevemente el trabajo que realizaste.
+                Proporciona los datos del cliente y describe los trabajos o arreglos que realizaste.
               </Text>
 
               <CustomInput
@@ -548,38 +585,83 @@ export default function EvidenciaForm() {
                 iconName="business-outline"
               />
 
-              <CustomInput
-                label="Descripción del Trabajo *"
-                placeholder="Ej. Cambio de cableado eléctrico, mantenimiento de bomba, etc."
-                value={descripcionTrabajo}
-                onChangeText={setDescripcionTrabajo}
-                multiline
-                numberOfLines={3}
-                style={{ height: 80 }}
-                iconName="construct-outline"
-              />
+              {trabajos.map((trabajo, index) => (
+                <View key={index} style={{ marginBottom: Spacing.four, borderLeftWidth: 3, borderLeftColor: themeColors.accent, paddingLeft: Spacing.two }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.two }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: themeColors.text }}>Trabajo / Arreglo #{index + 1}</Text>
+                    {trabajos.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setTrabajos(prev => prev.filter((_, i) => i !== index));
+                        }}
+                        style={{ padding: 4 }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color={Colors.light.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
-              <CustomInput
-                label="Materiales Utilizados"
-                placeholder="Ej. 2 metros cable UTP, 4 conectores RJ45, 1 caja de paso"
-                value={materialesUsados}
-                onChangeText={setMaterialesUsados}
-                multiline
-                numberOfLines={2}
-                style={{ height: 60 }}
-                iconName="build-outline"
-              />
+                  <CustomInput
+                    label="Descripción del Trabajo *"
+                    placeholder="Ej. Cambio de cableado eléctrico, mantenimiento de bomba, etc."
+                    value={trabajo.descripcion}
+                    onChangeText={(val) => {
+                      setTrabajos(prev => prev.map((t, i) => i === index ? { ...t, descripcion: val } : t));
+                    }}
+                    multiline
+                    numberOfLines={3}
+                    style={{ height: 70 }}
+                    iconName="construct-outline"
+                  />
 
-              <CustomInput
-                label="Observaciones o Detalles Extra"
-                placeholder="Ej. Se encontraron piezas desgastadas que requerirán cambio..."
-                value={observaciones}
-                onChangeText={setObservaciones}
-                multiline
-                numberOfLines={3}
-                style={{ height: 80 }}
-                iconName="document-text-outline"
-              />
+                  <CustomInput
+                    label="Materiales Utilizados"
+                    placeholder="Ej. 2 metros cable UTP, 4 conectores RJ45..."
+                    value={trabajo.materiales}
+                    onChangeText={(val) => {
+                      setTrabajos(prev => prev.map((t, i) => i === index ? { ...t, materiales: val } : t));
+                    }}
+                    multiline
+                    numberOfLines={2}
+                    style={{ height: 50 }}
+                    iconName="build-outline"
+                  />
+
+                  <CustomInput
+                    label="Solución (Qué se hizo para solucionar el problema) *"
+                    placeholder="Ej. Se reemplazó el fusible dañado y se aisló el cableado..."
+                    value={trabajo.solucion}
+                    onChangeText={(val) => {
+                      setTrabajos(prev => prev.map((t, i) => i === index ? { ...t, solucion: val } : t));
+                    }}
+                    multiline
+                    numberOfLines={2}
+                    style={{ height: 50 }}
+                    iconName="checkmark-circle-outline"
+                  />
+                </View>
+              ))}
+
+              <TouchableOpacity
+                onPress={() => {
+                  setTrabajos(prev => [...prev, { descripcion: '', materiales: '', solucion: '' }]);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: Spacing.two,
+                  borderWidth: 1,
+                  borderColor: themeColors.accent,
+                  borderRadius: BorderRadius.medium,
+                  borderStyle: 'dashed',
+                  marginBottom: Spacing.four,
+                  gap: Spacing.one
+                }}
+              >
+                <Ionicons name="add-circle-outline" size={20} color={themeColors.accent} />
+                <Text style={{ color: themeColors.accent, fontWeight: '700', fontSize: 14 }}>Agregar Otro Trabajo</Text>
+              </TouchableOpacity>
 
               {isAnalyzing ? (
                 <View style={styles.analyzingContainer}>

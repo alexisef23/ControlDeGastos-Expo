@@ -127,6 +127,71 @@ export const EvidenceReportGenerator = {
       `;
     }
 
+    let trabajosHtml = '';
+    let isMultiple = false;
+    let listTrabajos: { descripcion: string; materiales?: string | null; observaciones?: string | null }[] = [];
+
+    try {
+      if (evidencia.descripcion_trabajo && evidencia.descripcion_trabajo.trim().startsWith('[')) {
+        listTrabajos = JSON.parse(evidencia.descripcion_trabajo);
+        isMultiple = true;
+      }
+    } catch (e) {
+      console.warn('Error parsing trabajos JSON:', e);
+    }
+
+    if (isMultiple && listTrabajos.length > 0) {
+      trabajosHtml = `
+        <div class="section-title">Trabajos / Arreglos Realizados</div>
+        ${listTrabajos.map((t: any, idx) => `
+          <div style="margin-bottom: 12px; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; page-break-inside: avoid; background-color: #ffffff;">
+            <div style="background-color: #f7fafc; padding: 6px 10px; font-weight: 800; font-size: 11px; color: #1a365d; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px;">
+              Trabajo #${idx + 1}
+            </div>
+            <table style="width: 100%; border-collapse: collapse; border: none;">
+              <tr>
+                <td style="padding: 6px 10px; font-size: 11px; font-weight: 700; color: #4a5568; width: 25%; border-bottom: 1px solid #edf2f7; border-right: 1px solid #edf2f7; background-color: #f8fafc; vertical-align: top;">Descripción</td>
+                <td style="padding: 6px 10px; font-size: 11px; color: #2d3748; border-bottom: 1px solid #edf2f7; vertical-align: top;">${t.descripcion}</td>
+              </tr>
+              ${t.materiales ? `
+              <tr>
+                <td style="padding: 6px 10px; font-size: 11px; font-weight: 700; color: #4a5568; border-bottom: 1px solid #edf2f7; border-right: 1px solid #edf2f7; background-color: #f8fafc; vertical-align: top;">Materiales</td>
+                <td style="padding: 6px 10px; font-size: 11px; color: #2d3748; border-bottom: 1px solid #edf2f7; vertical-align: top;">${t.materiales}</td>
+              </tr>
+              ` : ''}
+              ${(t.solucion || t.observaciones) ? `
+              <tr>
+                <td style="padding: 6px 10px; font-size: 11px; font-weight: 700; color: #4a5568; border-right: 1px solid #edf2f7; background-color: #f8fafc; vertical-align: top;">Solución</td>
+                <td style="padding: 6px 10px; font-size: 11px; color: #2d3748; vertical-align: top;">${t.solucion || t.observaciones}</td>
+              </tr>
+              ` : ''}
+            </table>
+          </div>
+        `).join('')}
+      `;
+    } else {
+      trabajosHtml = `
+        <table class="info-table">
+          <tr>
+            <td class="label">Trabajo Inicial</td>
+            <td class="value" colspan="3">${evidencia.descripcion_trabajo}</td>
+          </tr>
+          ${evidencia.materiales_usados ? `
+          <tr>
+            <td class="label">Materiales Utilizados</td>
+            <td class="value" colspan="3">${evidencia.materiales_usados}</td>
+          </tr>
+          ` : ''}
+          ${evidencia.observaciones ? `
+          <tr>
+            <td class="label">Solución</td>
+            <td class="value" colspan="3">${evidencia.observaciones}</td>
+          </tr>
+          ` : ''}
+        </table>
+      `;
+    }
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -341,30 +406,16 @@ export const EvidenceReportGenerator = {
           </tr>
         </table>
 
-        <table class="info-table">
+        <table class="info-table" style="margin-bottom: 10px;">
           <tr>
             <td class="label">Responsable</td>
             <td class="value">${userName}</td>
             <td class="label">Cliente / Ubicación</td>
             <td class="value">${evidencia.cliente}</td>
           </tr>
-          <tr>
-            <td class="label">Trabajo Inicial</td>
-            <td class="value" colspan="3">${evidencia.descripcion_trabajo}</td>
-          </tr>
-          ${evidencia.materiales_usados ? `
-          <tr>
-            <td class="label">Materiales Utilizados</td>
-            <td class="value" colspan="3">${evidencia.materiales_usados}</td>
-          </tr>
-          ` : ''}
-          ${evidencia.observaciones ? `
-          <tr>
-            <td class="label">Observaciones</td>
-            <td class="value" colspan="3">${evidencia.observaciones}</td>
-          </tr>
-          ` : ''}
         </table>
+
+        ${trabajosHtml}
 
         ${fotosHtml}
 
