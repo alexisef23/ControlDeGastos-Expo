@@ -226,7 +226,7 @@ export default function AdminDashboard() {
     if (!selectedGasto || !adminUser) return;
     
     if (status === 'ACTION_REQUIRED' && !rejectionFeedback.trim()) {
-      Alert.alert('Observación requerida', 'Por favor escribe una duda o comentario para devolver el gasto.');
+      showAlert('Observación requerida', 'Por favor escribe una duda o comentario para devolver el gasto.');
       return;
     }
 
@@ -267,14 +267,14 @@ export default function AdminDashboard() {
       else if (status === 'REJECTED') friendlyStatus = 'Rechazado';
       else if (status === 'PENDING') friendlyStatus = 'Reversado (Pendiente)';
 
-      Alert.alert('Éxito', `El gasto ha sido marcado como ${friendlyStatus}.`);
+      showAlert('Éxito', `El gasto ha sido marcado como ${friendlyStatus}.`);
       setReviewModalVisible(false);
       setSelectedGasto(null);
       setRejectionFeedback('');
       setShowFeedbackInput(false);
       await refreshData();
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo procesar la acción de revisión.');
+      showAlert('Error', err.message || 'No se pudo procesar la acción de revisión.');
     } finally {
       setIsProcessingAction(false);
     }
@@ -1277,18 +1277,25 @@ export default function AdminDashboard() {
                       <CustomButton
                         title="Revertir a Pendiente (Revisión)"
                         onPress={() => {
-                          Alert.alert(
-                            'Revertir Gasto',
-                            '¿Estás seguro de que deseas regresar este gasto a la bandeja de pendientes para revisarlo nuevamente?',
-                            [
-                              { text: 'Cancelar', style: 'cancel' },
-                              {
-                                text: 'Confirmar Reversión',
-                                style: 'destructive',
-                                onPress: () => handleUpdateStatus('PENDING'),
-                              },
-                            ]
-                          );
+                          if (Platform.OS === 'web') {
+                            const confirmed = window.confirm('¿Estás seguro de que deseas regresar este gasto a la bandeja de pendientes para revisarlo nuevamente?');
+                            if (confirmed) {
+                              handleUpdateStatus('PENDING');
+                            }
+                          } else {
+                            Alert.alert(
+                              'Revertir Gasto',
+                              '¿Estás seguro de que deseas regresar este gasto a la bandeja de pendientes para revisarlo nuevamente?',
+                              [
+                                { text: 'Cancelar', style: 'cancel' },
+                                {
+                                  text: 'Confirmar Reversión',
+                                  style: 'destructive',
+                                  onPress: () => handleUpdateStatus('PENDING'),
+                                },
+                              ]
+                            );
+                          }
                         }}
                         variant="secondary"
                         style={{ width: '100%', marginTop: Spacing.one }}
