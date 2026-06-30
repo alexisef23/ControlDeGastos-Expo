@@ -71,12 +71,8 @@ export default function EmpleadoDashboard() {
 
   useEffect(() => {
     if (currentLocation) {
-      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-      if (!apiKey) {
-        setChecadorMapUrl(`https://staticmap.openstreetmap.de/staticmap.php?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&maptype=mapnik&markers=${currentLocation.lat},${currentLocation.lng},red-pushpin`);
-      } else {
-        setChecadorMapUrl(`https://maps.googleapis.com/maps/api/staticmap?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&markers=color:red%7C${currentLocation.lat},${currentLocation.lng}&key=${apiKey}`);
-      }
+      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSyDgvQcdXQYx8uSGNJJ4wENAGkIVbDIaUXc";
+      setChecadorMapUrl(`https://maps.googleapis.com/maps/api/staticmap?center=${currentLocation.lat},${currentLocation.lng}&zoom=16&size=200x200&markers=color:red%7C${currentLocation.lat},${currentLocation.lng}&key=${apiKey}`);
     } else {
       setChecadorMapUrl(null);
     }
@@ -182,11 +178,8 @@ export default function EmpleadoDashboard() {
       setCurrentLocation({ lat, lng });
 
       try {
-        const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+        const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSyDgvQcdXQYx8uSGNJJ4wENAGkIVbDIaUXc";
         console.log('[Checador] Iniciando geocodificación de Google con apiKey:', apiKey ? 'Presente' : 'Ausente');
-        if (!apiKey) {
-          throw new Error('Google Maps API key not found in environment');
-        }
         const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`);
         console.log('[Checador] Respuesta HTTP de Google Geocoding recibida:', response.status);
         const data = await response.json();

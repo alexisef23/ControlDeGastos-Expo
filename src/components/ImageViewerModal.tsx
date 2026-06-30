@@ -34,10 +34,7 @@ interface ImageViewerModalProps {
 }
 
 const getStaticMapUrl = (lat: number, lng: number) => {
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!apiKey) {
-    return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=16&size=200x200&maptype=mapnik&markers=${lat},${lng},red-pushpin`;
-  }
+  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSyDgvQcdXQYx8uSGNJJ4wENAGkIVbDIaUXc";
   return `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=16&size=200x200&markers=color:red%7C${lat},${lng}&key=${apiKey}`;
 };
 

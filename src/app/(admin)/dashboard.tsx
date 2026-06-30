@@ -222,7 +222,7 @@ export default function AdminDashboard() {
   };
 
   // Acciones de Revisión de Gastos
-  const handleUpdateStatus = async (status: 'APPROVED' | 'REJECTED' | 'ACTION_REQUIRED') => {
+  const handleUpdateStatus = async (status: 'APPROVED' | 'REJECTED' | 'ACTION_REQUIRED' | 'PENDING') => {
     if (!selectedGasto || !adminUser) return;
     
     if (status === 'ACTION_REQUIRED' && !rejectionFeedback.trim()) {
@@ -238,6 +238,9 @@ export default function AdminDashboard() {
         updatePayload.approved_at = new Date().toISOString();
       } else if (status === 'ACTION_REQUIRED') {
         updatePayload.rejection_feedback = rejectionFeedback.trim();
+      } else if (status === 'PENDING') {
+        updatePayload.approved_at = null;
+        updatePayload.rejection_feedback = null;
       }
 
       const { error } = await supabase
@@ -250,14 +253,21 @@ export default function AdminDashboard() {
       // Generar registro de auditoría
       await supabase.from('audit_logs').insert([
         {
-          action: status === 'APPROVED' ? 'APPROVE' : status === 'REJECTED' ? 'REJECT' : 'UPDATE',
+          action: status === 'APPROVED' ? 'APPROVE' : status === 'REJECTED' ? 'REJECT' : status === 'PENDING' ? 'REVERT' : 'UPDATE',
           actor_id: adminUser.id,
           target_id: selectedGasto.id,
-          details: `Gasto por ${selectedGasto.monto} revisado por Admin. Estado final: ${status}`,
+          details: status === 'PENDING' 
+            ? `Gasto por ${selectedGasto.monto} devuelto a revisión por Admin.` 
+            : `Gasto por ${selectedGasto.monto} revisado por Admin. Estado final: ${status}`,
         },
       ]);
 
-      Alert.alert('Éxito', `El gasto ha sido marcado como ${status === 'APPROVED' ? 'Aprobado' : status === 'REJECTED' ? 'Rechazado' : 'Acción Requerida'}.`);
+      let friendlyStatus = 'Acción Requerida';
+      if (status === 'APPROVED') friendlyStatus = 'Aprobado';
+      else if (status === 'REJECTED') friendlyStatus = 'Rechazado';
+      else if (status === 'PENDING') friendlyStatus = 'Reversado (Pendiente)';
+
+      Alert.alert('Éxito', `El gasto ha sido marcado como ${friendlyStatus}.`);
       setReviewModalVisible(false);
       setSelectedGasto(null);
       setRejectionFeedback('');
@@ -1110,6 +1120,13 @@ export default function AdminDashboard() {
                   </View>
 
                   <View style={styles.detailItem}>
+                    <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Cliente Relacionado</Text>
+                    <Text style={[styles.detailValue, { color: themeColors.text }]}>
+                      {selectedGasto.cliente || 'No especificado'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailItem}>
                     <Text style={[styles.detailLabel, { color: themeColors.textSecondary }]}>Fecha de Gasto</Text>
                     <Text style={[styles.detailValue, { color: themeColors.text }]}>
                       {formatFriendlyDate(selectedGasto.fecha_comprobante || selectedGasto.created_at?.split('T')[0])}
@@ -1246,15 +1263,38 @@ export default function AdminDashboard() {
 
                   {/* Detalle informativo de estado si ya fue resuelto */}
                   {selectedGasto.status !== 'PENDING' && (
-                    <View style={[styles.resolvedBadge, { backgroundColor: themeColors.backgroundSelected }]}>
-                      <Text style={[styles.resolvedText, { color: themeColors.text }]}>
-                        Estado de Revisión: {selectedGasto.status}
-                      </Text>
-                      {selectedGasto.rejection_feedback && (
-                        <Text style={{ color: themeColors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                          Feedback enviado: "{selectedGasto.rejection_feedback}"
+                    <View style={{ gap: Spacing.two, marginTop: Spacing.two }}>
+                      <View style={[styles.resolvedBadge, { backgroundColor: themeColors.backgroundSelected, marginBottom: 0 }]}>
+                        <Text style={[styles.resolvedText, { color: themeColors.text, fontWeight: '700' }]}>
+                          Estado de Revisión: {selectedGasto.status === 'APPROVED' ? 'Aprobado' : selectedGasto.status === 'REJECTED' ? 'Rechazado' : 'Acción Requerida'}
                         </Text>
-                      )}
+                        {selectedGasto.rejection_feedback && (
+                          <Text style={{ color: themeColors.textSecondary, fontSize: 13, marginTop: 4 }}>
+                            Feedback enviado: "{selectedGasto.rejection_feedback}"
+                          </Text>
+                        )}
+                      </View>
+                      <CustomButton
+                        title="Revertir a Pendiente (Revisión)"
+                        onPress={() => {
+                          Alert.alert(
+                            'Revertir Gasto',
+                            '¿Estás seguro de que deseas regresar este gasto a la bandeja de pendientes para revisarlo nuevamente?',
+                            [
+                              { text: 'Cancelar', style: 'cancel' },
+                              {
+                                text: 'Confirmar Reversión',
+                                style: 'destructive',
+                                onPress: () => handleUpdateStatus('PENDING'),
+                              },
+                            ]
+                          );
+                        }}
+                        variant="secondary"
+                        style={{ width: '100%', marginTop: Spacing.one }}
+                        loading={isProcessingAction}
+                        icon={<Ionicons name="arrow-undo-outline" size={20} color={themeColors.text} style={{ marginRight: 8 }} />}
+                      />
                     </View>
                   )}
                 </View>

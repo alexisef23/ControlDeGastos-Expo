@@ -37,6 +37,7 @@ export default function MiTrabajoScreen() {
   // Modal de Detalles
   const [selectedEvidencia, setSelectedEvidencia] = useState<Evidencia | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [isModalReady, setIsModalReady] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   // Modal de imagen a pantalla completa
@@ -196,6 +197,9 @@ export default function MiTrabajoScreen() {
               onPress={() => {
                 setSelectedEvidencia(item);
                 setModalVisible(true);
+                setTimeout(() => {
+                  setIsModalReady(true);
+                }, 200);
               }}
             >
               <View style={styles.cardHeader}>
@@ -252,7 +256,10 @@ export default function MiTrabajoScreen() {
         animationType="slide"
         transparent={true}
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setIsModalReady(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: themeColors.background }]}>
@@ -261,6 +268,7 @@ export default function MiTrabajoScreen() {
               <TouchableOpacity
                 onPress={() => {
                   setModalVisible(false);
+                  setIsModalReady(false);
                   setSelectedEvidencia(null);
                 }}
               >
@@ -268,7 +276,7 @@ export default function MiTrabajoScreen() {
               </TouchableOpacity>
             </View>
 
-            {selectedEvidencia && (
+            {selectedEvidencia && isModalReady ? (
               <ScrollView contentContainerStyle={styles.modalScroll}>
                 {/* Fotos de Evidencia */}
                 <View style={styles.evidencePhotosContainer}>
@@ -411,6 +419,10 @@ export default function MiTrabajoScreen() {
                   />
                 </View>
               </ScrollView>
+            ) : (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color={themeColors.accent} />
+              </View>
             )}
           </View>
         </View>

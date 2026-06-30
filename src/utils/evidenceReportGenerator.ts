@@ -1,4 +1,4 @@
-import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import { cacheDirectory, writeAsStringAsync, copyAsync, getContentUriAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -459,24 +459,35 @@ export const EvidenceReportGenerator = {
       }
 
       // Generar archivo PDF temporal
-      const { base64 } = await Print.printToFileAsync({ html: htmlContent, base64: true });
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
       
       const pdfFileName = `reporte_evidencia_${Date.now()}.pdf`;
       const safeUri = `${cacheDirectory}${pdfFileName}`;
       
-      await writeAsStringAsync(safeUri, pdfFileName && base64 || '', {
-        encoding: EncodingType.Base64,
-      });
+      try {
+        // Copiar el archivo generado por Print al cacheDirectory de la app
+        // para evitar errores de permisos al compartir (sin usar Base64 para evitar OOM)
+        await copyAsync({ from: uri, to: safeUri });
 
-      // Compartir nativamente
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(safeUri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Exportar Reporte de Evidencia PDF',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        throw new Error('La función de compartir no está disponible en este dispositivo.');
+        // Convertir a URI content:// en Android para asegurar que otras apps puedan leer el archivo
+        const shareUri = Platform.OS === 'android' ? await getContentUriAsync(safeUri) : safeUri;
+
+        // Compartir nativamente
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(shareUri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Exportar Reporte de Evidencia PDF',
+            UTI: 'com.adobe.pdf',
+          });
+        } else {
+          throw new Error('La función de compartir no está disponible en este dispositivo.');
+        }
+      } catch (shareError) {
+        console.warn('Error al compartir archivo directo (normal en Expo Go, se usará impresión nativa):', shareError);
+        // Fallback definitivo: Abre el diálogo de impresión del sistema
+        // Desde aquí el usuario puede "Guardar como PDF" o imprimir directamente,
+        // lo cual funciona 100% en Expo Go ya que el sistema operativo maneja la renderización.
+        await Print.printAsync({ html: htmlContent });
       }
     } catch (error: any) {
       console.error('Error generating evidence PDF report:', error);

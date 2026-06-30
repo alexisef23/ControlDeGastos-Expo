@@ -101,26 +101,39 @@ export default function ExpenseCard({
       </View>
 
       {showEmployeeName && gasto.empleado_nombre && (
-        <View style={styles.detailRow}>
+        <View style={[styles.detailRow, { marginBottom: Spacing.one }]}>
           <Ionicons name="person-outline" size={14} color={themeColors.textSecondary} />
-          <Text style={[styles.detailText, { color: themeColors.textSecondary }]}>
+          <Text style={[styles.detailText, { color: themeColors.textSecondary, maxWidth: '90%' }]}>
             {gasto.empleado_nombre}
           </Text>
         </View>
       )}
 
+      {(gasto.proveedor || gasto.cliente) && (
+        <View style={[styles.metadataRow, { marginBottom: Spacing.one }]}>
+          {gasto.proveedor && (
+            <View style={styles.detailRow}>
+              <Ionicons name="business-outline" size={14} color={themeColors.textSecondary} />
+              <Text style={[styles.detailText, { color: themeColors.textSecondary, maxWidth: 120 }]} numberOfLines={1}>
+                {gasto.proveedor}
+              </Text>
+            </View>
+          )}
+          {gasto.cliente && (
+            <View style={[styles.detailRow, { marginLeft: gasto.proveedor ? Spacing.three : 0 }]}>
+              <Ionicons name="people-outline" size={14} color={themeColors.textSecondary} />
+              <Text style={[styles.detailText, { color: themeColors.textSecondary, maxWidth: 120 }]} numberOfLines={1}>
+                {gasto.cliente}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.footer}>
-        <View style={styles.leftInfo}>
-          <View style={styles.detailRow}>
-            <Ionicons name="business-outline" size={14} color={themeColors.textSecondary} />
-            <Text style={[styles.detailText, { color: themeColors.textSecondary }]} numberOfLines={1}>
-              {gasto.proveedor || 'S/P'}
-            </Text>
-          </View>
-          <View style={[styles.detailRow, { marginLeft: Spacing.two }]}>
-            <Ionicons name="calendar-outline" size={14} color={themeColors.textSecondary} />
-            <Text style={[styles.detailText, { color: themeColors.textSecondary }]}>{fecha}</Text>
-          </View>
+        <View style={styles.detailRow}>
+          <Ionicons name="calendar-outline" size={14} color={themeColors.textSecondary} />
+          <Text style={[styles.detailText, { color: themeColors.textSecondary }]}>{fecha}</Text>
         </View>
 
         <View style={[styles.statusBadge, { backgroundColor: statusColor + '18' }]}>
@@ -192,19 +205,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: Spacing.one,
   },
-  leftInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
+  metadataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   detailText: {
     fontSize: 12,
-    maxWidth: 100,
+    maxWidth: 120,
   },
   statusBadge: {
     flexDirection: 'row',
