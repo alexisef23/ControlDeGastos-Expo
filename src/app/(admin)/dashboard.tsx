@@ -1229,6 +1229,16 @@ export default function AdminDashboard() {
                             style={{ width: '100%', marginTop: Spacing.one }}
                             disabled={isProcessingAction}
                           />
+                          <CustomButton
+                            title="Editar Gasto"
+                            onPress={() => {
+                              setReviewModalVisible(false);
+                              router.push(`/(admin)/editar-gasto?id=${selectedGasto.id}` as any);
+                            }}
+                            variant="primary"
+                            style={{ width: '100%', marginTop: Spacing.one }}
+                            disabled={isProcessingAction}
+                          />
                         </>
                       ) : (
                         <View style={styles.feedbackForm}>
