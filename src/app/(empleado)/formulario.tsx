@@ -977,10 +977,7 @@ export default function GastoForm() {
               </>
             )}
 
-              <View style={styles.footerNav}>
-                <View style={{ flex: 1 }} />
-                <CustomButton title="Siguiente" onPress={nextStep} style={styles.navBtn} />
-              </View>
+
             </View>
           )}
 
