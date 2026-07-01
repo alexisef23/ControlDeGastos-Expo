@@ -609,6 +609,12 @@ export default function AdminDashboard() {
         {/* BOTONES EXTRA */}
         <View style={styles.headerActions}>
           <TouchableOpacity
+            onPress={() => router.push('/(admin)/formulario')}
+            style={[styles.headerIconBtn, { backgroundColor: themeColors.primary + '15' }]}
+          >
+            <Ionicons name="receipt-outline" size={20} color={themeColors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={handleOpenProfile}
             style={[styles.headerIconBtn, { backgroundColor: themeColors.backgroundElement }]}
           >
@@ -1204,7 +1210,17 @@ export default function AdminDashboard() {
                   {/* Acciones para gastos PENDIENTES */}
                   {selectedGasto.status === 'PENDING' && (
                     <View style={styles.reviewActions}>
-                      {!showFeedbackInput ? (
+                      {selectedGasto.empleado_id === adminUser?.id ? (
+                        <View style={[styles.alertBanner, { backgroundColor: themeColors.warning + '15', borderColor: themeColors.warning, marginBottom: 0, padding: Spacing.two, borderRadius: BorderRadius.medium, borderWidth: 1, flexDirection: 'row', gap: Spacing.one }]}>
+                          <Ionicons name="warning-outline" size={22} color={themeColors.warning} style={{ marginTop: 2 }} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.alertTitle, { color: themeColors.warning, fontSize: 14, fontWeight: '700', marginBottom: 2 }]}>Revisión Cruzada</Text>
+                            <Text style={[styles.alertText, { color: themeColors.text, fontSize: 13 }]}>
+                              No puedes revisar tus propios gastos. Este registro debe ser aprobado o rechazado por otro administrador.
+                            </Text>
+                          </View>
+                        </View>
+                      ) : !showFeedbackInput ? (
                         <>
                           <View style={styles.rowActions}>
                             <CustomButton
