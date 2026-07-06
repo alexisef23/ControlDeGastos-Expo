@@ -354,3 +354,56 @@ export interface VentaPartida {
   precio_total_venta: number;
   costo_total_proveedor: number;
 }
+
+export async function recalculateVentaTotals(ventaId: string): Promise<void> {
+  try {
+    // 1. Obtener la venta
+    const { data: venta, error: ventaErr } = await supabase
+      .from('ventas')
+      .select('precio_total_facturado')
+      .eq('id', ventaId)
+      .single();
+    if (ventaErr || !venta) throw ventaErr || new Error('Sale not found');
+
+    // 2. Obtener la suma del costo de las partidas de la venta
+    const { data: partidas, error: partidasErr } = await supabase
+      .from('ventas_partidas')
+      .select('costo_total_proveedor')
+      .eq('venta_id', ventaId);
+    if (partidasErr) throw partidasErr;
+
+    const costoPartidas = (partidas || []).reduce((sum, p) => sum + (Number(p.costo_total_proveedor) || 0), 0);
+
+    // 3. Obtener la suma de los montos de los gastos aprobados vinculados a la venta
+    const { data: gastos, error: gastosErr } = await supabase
+      .from('gastos')
+      .select('monto')
+      .eq('venta_id', ventaId)
+      .eq('status', 'APPROVED');
+    if (gastosErr) throw gastosErr;
+
+    const costoGastos = (gastos || []).reduce((sum, g) => sum + (Number(g.monto) || 0), 0);
+
+    // 4. Calcular nuevos totales
+    const costoTotal = Math.round((costoPartidas + costoGastos) * 100) / 100;
+    const precioTotal = Number(venta.precio_total_facturado) || 0;
+    const utilidadBruta = Math.round((precioTotal - costoTotal) * 100) / 100;
+    const margenPorcentual = precioTotal > 0 ? Math.round((utilidadBruta / precioTotal) * 10000) / 10000 : 0;
+
+    // 5. Actualizar la venta
+    const { error: updateErr } = await supabase
+      .from('ventas')
+      .update({
+        costo_total: costoTotal,
+        utilidad_bruta: utilidadBruta,
+        margen_porcentual: margenPorcentual
+      })
+      .eq('id', ventaId);
+    
+    if (updateErr) throw updateErr;
+    console.log(`[Recalculate] Venta ${ventaId} actualizada en base de datos. Costo Partidas: ${costoPartidas}, Costo Gastos: ${costoGastos}, Costo Total: ${costoTotal}`);
+  } catch (err) {
+    console.error('[Recalculate] Error recalculating venta totals:', err);
+  }
+}
+

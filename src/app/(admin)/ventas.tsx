@@ -20,7 +20,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase, AuthService, Usuario, Venta, VentaPartida } from '@/services/supabase';
+import { supabase, AuthService, Usuario, Venta, VentaPartida, recalculateVentaTotals } from '@/services/supabase';
 import { GeminiService, GeminiSalesResult } from '@/services/gemini';
 import { base64ToArrayBuffer } from '@/services/sync';
 import StepIndicator from '@/components/StepIndicator';
@@ -88,6 +88,7 @@ export default function VentasScreen() {
   // === Edición y Detalle de Ventas ===
   const [selectedVenta, setSelectedVenta] = useState<Venta | null>(null);
   const [selectedVentaPartidas, setSelectedVentaPartidas] = useState<VentaPartida[]>([]);
+  const [selectedVentaGastos, setSelectedVentaGastos] = useState<any[]>([]);
   const [isLoadingPartidas, setIsLoadingPartidas] = useState(false);
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [editingVentaId, setEditingVentaId] = useState<string | null>(null);
@@ -142,15 +143,25 @@ export default function VentasScreen() {
     setIsDetailModalVisible(true);
     setIsLoadingPartidas(true);
     try {
-      const { data, error } = await supabase
+      // 1. Cargar partidas
+      const { data: partData, error: partError } = await supabase
         .from('ventas_partidas')
         .select('*')
         .eq('venta_id', venta.id);
-      if (error) throw error;
-      setSelectedVentaPartidas(data || []);
+      if (partError) throw partError;
+      setSelectedVentaPartidas(partData || []);
+
+      // 2. Cargar gastos vinculados
+      const { data: gastosData, error: gastosError } = await supabase
+        .from('gastos')
+        .select('*')
+        .eq('venta_id', venta.id)
+        .eq('status', 'APPROVED');
+      if (gastosError) throw gastosError;
+      setSelectedVentaGastos(gastosData || []);
     } catch (err: any) {
-      console.error('Error fetching venta partidas:', err);
-      showAlert('Error', 'No se pudieron cargar las partidas de la venta.');
+      console.error('Error fetching venta details:', err);
+      showAlert('Error', 'No se pudieron cargar los detalles de la venta.');
     } finally {
       setIsLoadingPartidas(false);
     }
@@ -281,18 +292,22 @@ export default function VentasScreen() {
       costoTotal += Math.round(cant * costoUP * 100) / 100;
     });
 
-    const utilidad = Math.round((precioTotal - costoTotal) * 100) / 100;
+    // Sumar el costo de los gastos vinculados si existen
+    const costoGastos = selectedVentaGastos.reduce((sum, g) => sum + (Number(g.monto) || 0), 0);
+    const costoTotalConGastos = costoTotal + costoGastos;
+
+    const utilidad = Math.round((precioTotal - costoTotalConGastos) * 100) / 100;
     const margen = precioTotal > 0
       ? Math.round((utilidad / precioTotal) * 10000) / 10000
       : 0;
 
     return {
       precioTotal,
-      costoTotal,
+      costoTotal: costoTotalConGastos,
       utilidad,
       margen,
     };
-  }, [partidas]);
+  }, [partidas, selectedVentaGastos]);
 
   // === Permisos ===
   const requestCameraPermission = async (): Promise<boolean> => {
@@ -449,7 +464,8 @@ export default function VentasScreen() {
       if (result.informacion_general.cliente) setCliente(result.informacion_general.cliente);
       if (result.informacion_general.factura_o_referencia) setFacturaReferencia(result.informacion_general.factura_o_referencia);
       if (result.informacion_general.tipo_de_proyecto) setTipoProyecto(result.informacion_general.tipo_de_proyecto);
-      if (result.informacion_general.proveedor) setProveedor(result.informacion_general.proveedor);
+      // No auto-poblamos la sucursal con el proveedor de la factura de compra ya que son conceptos distintos
+      // if (result.informacion_general.proveedor) setProveedor(result.informacion_general.proveedor);
 
       // Poblar partidas
       const partidasUI: PartidaEditable[] = result.partidas_o_productos.map((p, idx) => ({
@@ -618,6 +634,9 @@ export default function VentasScreen() {
         .insert(partidasPayload);
 
       if (partidasError) throw partidasError;
+
+      // Recalcular y sincronizar totales con gastos en la base de datos
+      await recalculateVentaTotals(activeVentaId);
 
       if (editingVentaId) {
         showAlert('Éxito', 'La venta fue actualizada correctamente.');
@@ -894,10 +913,10 @@ export default function VentasScreen() {
       </View>
 
       <CustomInput
-        label="Proveedor"
+        label="Sucursal"
         value={proveedor}
         onChangeText={setProveedor}
-        placeholder="Nombre del proveedor (si aplica)"
+        placeholder="Ej. Centro, Norte o sucursal relacionada"
       />
 
       <CustomInput
@@ -1043,7 +1062,7 @@ export default function VentasScreen() {
           ) : null}
           {proveedor ? (
             <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: themeColors.textSecondary }]}>Proveedor:</Text>
+              <Text style={[styles.summaryLabel, { color: themeColors.textSecondary }]}>Sucursal:</Text>
               <Text style={[styles.summaryValue, { color: themeColors.text }]}>{proveedor}</Text>
             </View>
           ) : null}
@@ -1385,7 +1404,7 @@ export default function VentasScreen() {
 
                   {selectedVenta.proveedor ? (
                     <View style={styles.modalRow}>
-                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Proveedor:</Text>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Sucursal:</Text>
                       <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.proveedor}</Text>
                     </View>
                   ) : null}
@@ -1410,9 +1429,28 @@ export default function VentasScreen() {
                       </Text>
                     </View>
 
+                    {/* Costo de Partidas / Productos */}
                     <View style={styles.modalRow}>
-                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Costo de Compra:</Text>
-                      <Text style={[styles.modalValue, { color: themeColors.danger, fontSize: 14, fontWeight: '700' }]}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Costo de Adquisición (Productos):</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.text, fontSize: 13, fontWeight: '500' }]}>
+                        {formatCurrency(selectedVentaPartidas.reduce((sum, p) => sum + (p.cantidad * p.costo_unitario_proveedor), 0))}
+                      </Text>
+                    </View>
+
+                    {/* Costo de Gastos vinculados */}
+                    {selectedVentaGastos.length > 0 && (
+                      <View style={styles.modalRow}>
+                        <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Gastos Operativos Vinculados:</Text>
+                        <Text style={[styles.modalValue, { color: themeColors.danger, fontSize: 13, fontWeight: '500' }]}>
+                          {formatCurrency(selectedVentaGastos.reduce((sum, g) => sum + (Number(g.monto) || 0), 0))}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Costo Total consolidado */}
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary, fontWeight: '700' }]}>Costo Total:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.danger, fontSize: 14, fontWeight: '800' }]}>
                         {formatCurrency(selectedVenta.costo_total)}
                       </Text>
                     </View>
@@ -1481,6 +1519,37 @@ export default function VentasScreen() {
                     </View>
                   )}
                 </View>
+
+                {/* Lista de Gastos Vinculados */}
+                {selectedVentaGastos.length > 0 && (
+                  <View style={[styles.modalCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                    <Text style={[styles.modalSectionTitle, { color: themeColors.danger }]}>Gastos Operativos Vinculados ({selectedVentaGastos.length})</Text>
+                    <View style={{ gap: Spacing.two }}>
+                      {selectedVentaGastos.map((gasto, idx) => (
+                        <View key={gasto.id || idx} style={[styles.modalPartidaItem, { borderColor: themeColors.border }]}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ color: themeColors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                              {idx + 1}. {gasto.justificacion || 'Gasto operativo'}
+                            </Text>
+                            <Text style={{ color: themeColors.danger, fontSize: 13, fontWeight: '700' }}>
+                              {formatCurrency(Number(gasto.monto) || 0)}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                            <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                              Fecha: {gasto.fecha_comprobante || gasto.created_at?.split('T')[0] || 'N/A'}
+                            </Text>
+                            {gasto.empleado_nombre && (
+                              <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                                Reg: {gasto.empleado_nombre}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </ScrollView>
             ) : (
               <View style={styles.loaderContainer}>

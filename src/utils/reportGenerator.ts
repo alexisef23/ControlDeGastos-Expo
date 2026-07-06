@@ -1641,7 +1641,7 @@ export const ReportGenerator = {
               <th style="width: 12%">Fecha</th>
               <th style="width: 25%">Cliente / Ref</th>
               <th style="width: 13%">Tipo</th>
-              <th style="width: 15%">Proveedor</th>
+              <th style="width: 15%">Sucursal</th>
               <th style="width: 13%; text-align: right;">Venta</th>
               <th style="width: 10%; text-align: right;">Costo</th>
               <th style="width: 12%; text-align: right;">Utilidad</th>
@@ -1723,7 +1723,7 @@ export const ReportGenerator = {
     }
 
     let csvContent = '\uFEFF'; // BOM
-    csvContent += 'ID Venta,Fecha,Cliente,Referencia/Factura,Tipo Proyecto,Proveedor,Total Facturado (Venta),Total Costo (Proveedor),Utilidad Bruta,Margen %\n';
+    csvContent += 'ID Venta,Fecha,Cliente,Referencia/Factura,Tipo Proyecto,Sucursal,Total Facturado (Venta),Total Costo (Proveedor),Utilidad Bruta,Margen %\n';
 
     ventas.forEach((v) => {
       const fecha = v.fecha || '';

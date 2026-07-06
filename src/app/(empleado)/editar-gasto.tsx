@@ -17,7 +17,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase, AuthService, Usuario, CatalogoItem, SubcategoriaItem, Gasto } from '@/services/supabase';
+import { supabase, AuthService, Usuario, CatalogoItem, SubcategoriaItem, Gasto, recalculateVentaTotals } from '@/services/supabase';
 import { SyncService, base64ToArrayBuffer } from '@/services/sync';
 import { GeminiService } from '@/services/gemini';
 import StepIndicator from '@/components/StepIndicator';
@@ -738,12 +738,25 @@ export default function EditarGastoForm() {
         updateData.factura_url = publicInvoiceUrl;
       }
 
+      // Obtener el venta_id actual antes de actualizar para saber si estaba vinculado
+      const { data: oldGasto } = await supabase
+        .from('gastos')
+        .select('venta_id')
+        .eq('id', id)
+        .single();
+
       const { error: dbError } = await supabase
         .from('gastos')
         .update(updateData)
         .eq('id', id);
 
       if (dbError) throw dbError;
+
+      // Si el gasto estaba vinculado a una venta, recalculamos sus totales
+      if (oldGasto && oldGasto.venta_id) {
+        await recalculateVentaTotals(oldGasto.venta_id);
+      }
+
       showAlert('Éxito', 'Gasto modificado correctamente y enviado a revisión.');
 
       router.replace('/(empleado)/dashboard');

@@ -18,7 +18,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/theme';
-import { supabase, Gasto, AuthService, Usuario, Asistencia, AsistenciaService, Venta } from '@/services/supabase';
+import { supabase, Gasto, AuthService, Usuario, Asistencia, AsistenciaService, Venta, recalculateVentaTotals } from '@/services/supabase';
 import { ReportGenerator } from '@/utils/reportGenerator';
 import ExpenseCard from '@/components/ExpenseCard';
 import CustomButton from '@/components/CustomButton';
@@ -151,18 +151,22 @@ export default function AdminDashboard() {
       costoTotal += Math.round(cant * costoUP * 100) / 100;
     });
 
-    const utilidad = Math.round((precioTotal - costoTotal) * 100) / 100;
+    // Sumar el gasto operativo vinculado que originó esta venta rápida
+    const costoGasto = selectedGasto ? (Number(selectedGasto.monto) || 0) : 0;
+    const costoTotalConGasto = costoTotal + costoGasto;
+
+    const utilidad = Math.round((precioTotal - costoTotalConGasto) * 100) / 100;
     const margen = precioTotal > 0
       ? Math.round((utilidad / precioTotal) * 10000) / 10000
       : 0;
 
     return {
       precioTotal,
-      costoTotal,
+      costoTotal: costoTotalConGasto,
       utilidad,
       margen,
     };
-  }, [quickSalePartidas]);
+  }, [quickSalePartidas, selectedGasto]);
 
   const filteredSalesForLinking = useMemo(() => {
     if (!linkSaleSearch.trim()) return salesForLinking;
@@ -413,6 +417,10 @@ export default function AdminDashboard() {
 
       if (error) throw error;
 
+      if (ventaId) {
+        await recalculateVentaTotals(ventaId);
+      }
+
       // Generar registro de auditoría
       await supabase.from('audit_logs').insert([
         {
@@ -443,7 +451,7 @@ export default function AdminDashboard() {
     setQuickSaleCliente(selectedGasto.cliente || '');
     setQuickSaleFactura(selectedGasto.facturado ? 'Factura' : '');
     setQuickSaleTipoProyecto(selectedGasto.tipo_servicio_proyecto || 'Otro');
-    setQuickSaleProveedor(selectedGasto.proveedor || '');
+    setQuickSaleProveedor(selectedGasto.sucursal || '');
     setQuickSaleNotas(`Vinculado automáticamente al aprobar gasto de justificación: ${selectedGasto.justificacion || 'Sin justificación'}`);
 
     // No pre-cargar partidas, dejarlas en blanco
@@ -1883,13 +1891,13 @@ export default function AdminDashboard() {
                     )}
                   </View>
 
-                  {/* Proveedor */}
+                  {/* Sucursal */}
                   <CustomInput
-                    label="Proveedor (Opcional)"
-                    placeholder="Nombre del proveedor..."
+                    label="Sucursal (Opcional)"
+                    placeholder="Ej. Centro, Norte o sucursal relacionada..."
                     value={quickSaleProveedor}
                     onChangeText={setQuickSaleProveedor}
-                    iconName="business-outline"
+                    iconName="location-outline"
                     style={{ marginTop: Spacing.two }}
                   />
 
