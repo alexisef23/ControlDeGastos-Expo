@@ -13,6 +13,7 @@ import {
   TextInput,
   FlatList,
   useWindowDimensions,
+  Modal,
 } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRouter } from 'expo-router';
@@ -84,6 +85,13 @@ export default function VentasScreen() {
   const [ventasHistorial, setVentasHistorial] = useState<Venta[]>([]);
   const [isLoadingHistorial, setIsLoadingHistorial] = useState(false);
 
+  // === Edición y Detalle de Ventas ===
+  const [selectedVenta, setSelectedVenta] = useState<Venta | null>(null);
+  const [selectedVentaPartidas, setSelectedVentaPartidas] = useState<VentaPartida[]>([]);
+  const [isLoadingPartidas, setIsLoadingPartidas] = useState(false);
+  const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
+  const [editingVentaId, setEditingVentaId] = useState<string | null>(null);
+
   // === Clientes de Supabase ===
   const [clientes, setClientes] = useState<any[]>([]);
   const [clienteSearch, setClienteSearch] = useState('');
@@ -127,6 +135,106 @@ export default function VentasScreen() {
     } finally {
       setIsLoadingHistorial(false);
     }
+  };
+
+  const handleSelectVenta = async (venta: Venta) => {
+    setSelectedVenta(venta);
+    setIsDetailModalVisible(true);
+    setIsLoadingPartidas(true);
+    try {
+      const { data, error } = await supabase
+        .from('ventas_partidas')
+        .select('*')
+        .eq('venta_id', venta.id);
+      if (error) throw error;
+      setSelectedVentaPartidas(data || []);
+    } catch (err: any) {
+      console.error('Error fetching venta partidas:', err);
+      showAlert('Error', 'No se pudieron cargar las partidas de la venta.');
+    } finally {
+      setIsLoadingPartidas(false);
+    }
+  };
+
+  const handleDeleteVenta = async () => {
+    if (!selectedVenta) return;
+
+    const performDelete = async () => {
+      setIsSubmitting(true);
+      try {
+        // Eliminar partidas primero (clave foránea)
+        const { error: partError } = await supabase
+          .from('ventas_partidas')
+          .delete()
+          .eq('venta_id', selectedVenta.id);
+
+        if (partError) throw partError;
+
+        // Eliminar venta
+        const { error: ventError } = await supabase
+          .from('ventas')
+          .delete()
+          .eq('id', selectedVenta.id);
+
+        if (ventError) throw ventError;
+
+        showAlert('Éxito', 'La venta fue eliminada correctamente.');
+        setIsDetailModalVisible(false);
+        resetForm();
+        loadHistorial();
+      } catch (err: any) {
+        console.error('Error deleting sale:', err);
+        showAlert('Error', err.message || 'No se pudo eliminar la venta.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Estás seguro de que deseas eliminar esta venta y todas sus partidas? Esta acción no se puede deshacer.')) {
+        await performDelete();
+      }
+    } else {
+      Alert.alert(
+        'Confirmar Eliminación',
+        '¿Estás seguro de que deseas eliminar esta venta y todas sus partidas? Esta acción no se puede deshacer.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar', style: 'destructive', onPress: performDelete }
+        ]
+      );
+    }
+  };
+
+  const handleEditVenta = () => {
+    if (!selectedVenta) return;
+
+    const editablePartidas: PartidaEditable[] = selectedVentaPartidas.map(p => ({
+      id: p.id,
+      descripcion: p.descripcion,
+      cantidad: String(p.cantidad),
+      unidad: p.unidad,
+      precio_unitario_venta: String(p.precio_unitario_venta),
+      costo_unitario_proveedor: String(p.costo_unitario_proveedor),
+    }));
+
+    setFecha(selectedVenta.fecha);
+    setCliente(selectedVenta.cliente);
+    setFacturaReferencia(selectedVenta.factura_referencia || '');
+    setTipoProyecto(selectedVenta.tipo_proyecto || '');
+    setProveedor(selectedVenta.proveedor || '');
+    setNotas(selectedVenta.notas || '');
+    setPartidas(editablePartidas);
+    setEditingVentaId(selectedVenta.id);
+
+    setIsDetailModalVisible(false);
+    setActiveTab('registrar');
+    setCurrentStep(2);
+  };
+
+  const cancelEditing = () => {
+    setEditingVentaId(null);
+    resetForm();
   };
 
   const handleAddNewCliente = async (nombre: string) => {
@@ -420,7 +528,7 @@ export default function VentasScreen() {
 
     try {
       // Subir factura a Storage si hay base64
-      let facturaPublicUrl: string | null = null;
+      let facturaPublicUrl: string | null = selectedVenta?.factura_url || null;
       if (fileBase64) {
         const ext = fileMimeType.includes('pdf') ? 'pdf' : 'jpg';
         const contentType = fileMimeType.includes('pdf') ? 'application/pdf' : 'image/jpeg';
@@ -440,7 +548,7 @@ export default function VentasScreen() {
         }
       }
 
-      // Insertar venta principal
+      // Payload común
       const ventaPayload = {
         registrado_por: currentUser.id,
         fecha: fecha.trim(),
@@ -456,22 +564,45 @@ export default function VentasScreen() {
         notas: notas.trim() || null,
       };
 
-      const { data: ventaData, error: ventaError } = await supabase
-        .from('ventas')
-        .insert([ventaPayload])
-        .select()
-        .single();
+      let activeVentaId = '';
 
-      if (ventaError) throw ventaError;
+      if (editingVentaId) {
+        // ACTUALIZAR VENTA EXISTENTE
+        const { error: updateError } = await supabase
+          .from('ventas')
+          .update(ventaPayload)
+          .eq('id', editingVentaId);
 
-      // Insertar partidas
+        if (updateError) throw updateError;
+        activeVentaId = editingVentaId;
+
+        // Eliminar partidas anteriores
+        const { error: deletePartidasError } = await supabase
+          .from('ventas_partidas')
+          .delete()
+          .eq('venta_id', editingVentaId);
+
+        if (deletePartidasError) throw deletePartidasError;
+      } else {
+        // INSERTAR NUEVA VENTA
+        const { data: ventaData, error: ventaError } = await supabase
+          .from('ventas')
+          .insert([ventaPayload])
+          .select()
+          .single();
+
+        if (ventaError) throw ventaError;
+        activeVentaId = ventaData.id;
+      }
+
+      // Insertar partidas nuevas/editadas
       const partidasPayload = partidas.map(p => {
         const cant = Number(p.cantidad) || 0;
         const precioUV = Number(p.precio_unitario_venta) || 0;
         const costoUP = Number(p.costo_unitario_proveedor) || 0;
 
         return {
-          venta_id: ventaData.id,
+          venta_id: activeVentaId,
           descripcion: p.descripcion.trim(),
           cantidad: cant,
           unidad: p.unidad || 'PZA',
@@ -488,12 +619,17 @@ export default function VentasScreen() {
 
       if (partidasError) throw partidasError;
 
-      showAlert('Éxito', 'La venta fue registrada correctamente.');
-
-      // Resetear formulario
-      resetForm();
+      if (editingVentaId) {
+        showAlert('Éxito', 'La venta fue actualizada correctamente.');
+        cancelEditing();
+        setActiveTab('historial');
+        loadHistorial();
+      } else {
+        showAlert('Éxito', 'La venta fue registrada correctamente.');
+        resetForm();
+      }
     } catch (err: any) {
-      showAlert('Error al guardar', err.message || 'No se pudo registrar la venta.');
+      showAlert('Error al guardar', err.message || 'No se pudo registrar/actualizar la venta.');
     } finally {
       setIsSubmitting(false);
     }
@@ -512,6 +648,9 @@ export default function VentasScreen() {
     setProveedor('');
     setNotas('');
     setPartidas([]);
+    setSelectedVenta(null);
+    setSelectedVentaPartidas([]);
+    setEditingVentaId(null);
   };
 
   // === Navigation between steps ===
@@ -1012,7 +1151,7 @@ export default function VentasScreen() {
             <Ionicons name="checkmark-circle" size={22} color="#fff" />
           )}
           <Text style={styles.saveBtnText}>
-            {isSubmitting ? 'Guardando...' : 'Registrar Venta'}
+            {isSubmitting ? 'Guardando...' : editingVentaId ? 'Guardar Cambios' : 'Registrar Venta'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -1042,7 +1181,10 @@ export default function VentasScreen() {
             const isProfit = item.utilidad_bruta >= 0;
             const margenPct = (item.margen_porcentual * 100).toFixed(1);
             return (
-              <View style={[styles.historialCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+              <TouchableOpacity
+                onPress={() => handleSelectVenta(item)}
+                style={[styles.historialCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+              >
                 <View style={styles.historialHeader}>
                   <Text style={[styles.historialCliente, { color: themeColors.text }]}>{item.cliente}</Text>
                   <Text style={[styles.historialFecha, { color: themeColors.textSecondary }]}>{item.fecha}</Text>
@@ -1077,7 +1219,7 @@ export default function VentasScreen() {
                     </Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           }}
           refreshing={isLoadingHistorial}
@@ -1091,42 +1233,61 @@ export default function VentasScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: themeColors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => (editingVentaId ? cancelEditing() : router.back())} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={themeColors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: themeColors.text }]}>Registro de Ventas</Text>
+        <Text style={[styles.headerTitle, { color: themeColors.text }]}>
+          {editingVentaId ? 'Editar Venta' : 'Registro de Ventas'}
+        </Text>
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          onPress={() => setActiveTab('registrar')}
-          style={[
-            styles.tab,
-            activeTab === 'registrar'
-              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
-              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
-          ]}
-        >
-          <Text style={[styles.tabText, { color: activeTab === 'registrar' ? '#fff' : themeColors.textSecondary }]}>
-            Registrar Venta
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setActiveTab('historial')}
-          style={[
-            styles.tab,
-            activeTab === 'historial'
-              ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
-              : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
-          ]}
-        >
-          <Text style={[styles.tabText, { color: activeTab === 'historial' ? '#fff' : themeColors.textSecondary }]}>
-            Historial
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Tabs / Banner de edición */}
+      {editingVentaId ? (
+        <View style={[styles.editingBanner, { backgroundColor: themeColors.accent + '20', borderBottomColor: themeColors.border }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one }}>
+            <Ionicons name="create" size={20} color={themeColors.accent} />
+            <Text style={[styles.editingBannerText, { color: themeColors.text }]}>
+              Editando Venta de: <Text style={{ fontWeight: '800' }}>{cliente}</Text>
+            </Text>
+          </View>
+          <TouchableOpacity 
+            onPress={cancelEditing} 
+            style={[styles.cancelEditBtn, { borderColor: themeColors.danger + '40', backgroundColor: themeColors.danger + '15' }]}
+          >
+            <Text style={{ color: themeColors.danger, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity
+            onPress={() => setActiveTab('registrar')}
+            style={[
+              styles.tab,
+              activeTab === 'registrar'
+                ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+                : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+            ]}
+          >
+            <Text style={[styles.tabText, { color: activeTab === 'registrar' ? '#fff' : themeColors.textSecondary }]}>
+              Registrar Venta
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setActiveTab('historial')}
+            style={[
+              styles.tab,
+              activeTab === 'historial'
+                ? { backgroundColor: themeColors.accent, borderColor: themeColors.accent }
+                : { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border },
+            ]}
+          >
+            <Text style={[styles.tabText, { color: activeTab === 'historial' ? '#fff' : themeColors.textSecondary }]}>
+              Historial
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {activeTab === 'historial' ? (
         renderHistorial()
@@ -1174,6 +1335,182 @@ export default function VentasScreen() {
           )}
         </>
       )}
+
+      {/* Modal de Detalle de Venta */}
+      <Modal
+        visible={isDetailModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsDetailModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.background, borderColor: themeColors.border }]}>
+            {/* Header del Modal */}
+            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border }]}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>Detalle de Venta</Text>
+              <TouchableOpacity onPress={() => setIsDetailModalVisible(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={themeColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedVenta ? (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+                {/* Bloque Información General */}
+                <View style={[styles.modalCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                  <Text style={[styles.modalSectionTitle, { color: themeColors.accent }]}>Información General</Text>
+                  
+                  <View style={styles.modalRow}>
+                    <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Cliente:</Text>
+                    <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.cliente}</Text>
+                  </View>
+                  
+                  <View style={styles.modalRow}>
+                    <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Fecha:</Text>
+                    <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.fecha}</Text>
+                  </View>
+                  
+                  {selectedVenta.factura_referencia ? (
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Factura/Ref:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.factura_referencia}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedVenta.tipo_proyecto ? (
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Tipo de Proyecto:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.tipo_proyecto}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedVenta.proveedor ? (
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Proveedor:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.text }]}>{selectedVenta.proveedor}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedVenta.notas ? (
+                    <View style={[styles.modalRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: Spacing.one }]}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Notas:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.text, fontWeight: 'normal' }]}>{selectedVenta.notas}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Bloque Totales Financieros */}
+                <View style={[styles.modalCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                  <Text style={[styles.modalSectionTitle, { color: themeColors.accent }]}>Resumen Financiero</Text>
+                  
+                  <View style={{ gap: Spacing.one }}>
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Total Facturado:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.accent, fontSize: 16, fontWeight: '800' }]}>
+                        {formatCurrency(selectedVenta.precio_total_facturado)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Costo de Compra:</Text>
+                      <Text style={[styles.modalValue, { color: themeColors.danger, fontSize: 14, fontWeight: '700' }]}>
+                        {formatCurrency(selectedVenta.costo_total)}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.modalDivider, { backgroundColor: themeColors.border }]} />
+
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Utilidad Bruta:</Text>
+                      <Text style={[styles.modalValue, { color: selectedVenta.utilidad_bruta >= 0 ? themeColors.success : themeColors.danger, fontSize: 15, fontWeight: '800' }]}>
+                        {formatCurrency(selectedVenta.utilidad_bruta)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.modalRow}>
+                      <Text style={[styles.modalLabel, { color: themeColors.textSecondary }]}>Margen Porcentual:</Text>
+                      <Text style={[styles.modalValue, { color: selectedVenta.utilidad_bruta >= 0 ? themeColors.success : themeColors.danger, fontSize: 15, fontWeight: '800' }]}>
+                        {(selectedVenta.margen_porcentual * 100).toFixed(1)}%
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Lista de Partidas */}
+                <View style={[styles.modalCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
+                  <Text style={[styles.modalSectionTitle, { color: themeColors.accent }]}>Partidas / Productos</Text>
+                  
+                  {isLoadingPartidas ? (
+                    <ActivityIndicator size="small" color={themeColors.accent} style={{ marginVertical: Spacing.two }} />
+                  ) : selectedVentaPartidas.length === 0 ? (
+                    <Text style={{ color: themeColors.textSecondary, fontStyle: 'italic', fontSize: 13 }}>No hay partidas registradas.</Text>
+                  ) : (
+                    <View style={{ gap: Spacing.two }}>
+                      {selectedVentaPartidas.map((partida, idx) => {
+                        const subVenta = partida.cantidad * partida.precio_unitario_venta;
+                        const subCosto = partida.cantidad * partida.costo_unitario_proveedor;
+                        const subUtilidad = subVenta - subCosto;
+
+                        return (
+                          <View key={partida.id || idx} style={[styles.modalPartidaItem, { borderColor: themeColors.border }]}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <Text style={{ color: themeColors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                                {idx + 1}. {partida.descripcion}
+                              </Text>
+                              <Text style={{ color: themeColors.textSecondary, fontSize: 12 }}>
+                                {partida.cantidad} {partida.unidad}
+                              </Text>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                              <Text style={{ color: themeColors.textSecondary, fontSize: 11 }}>
+                                Costo U: {formatCurrency(partida.costo_unitario_proveedor)} | Venta U: {formatCurrency(partida.precio_unitario_venta)}
+                              </Text>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                              <Text style={{ color: themeColors.accent, fontSize: 12, fontWeight: '700' }}>
+                                Total: {formatCurrency(subVenta)}
+                              </Text>
+                              <Text style={{ color: subUtilidad >= 0 ? themeColors.success : themeColors.danger, fontSize: 12, fontWeight: '700' }}>
+                                Utilidad: {formatCurrency(subUtilidad)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+            ) : (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color={themeColors.accent} />
+              </View>
+            )}
+
+            {/* Acciones del Modal */}
+            <View style={[styles.modalFooter, { borderTopColor: themeColors.border }]}>
+              <TouchableOpacity
+                onPress={handleDeleteVenta}
+                disabled={isSubmitting}
+                style={[styles.modalActionBtn, { backgroundColor: themeColors.danger + '15', borderColor: themeColors.danger }]}
+              >
+                <Ionicons name="trash-outline" size={20} color={themeColors.danger} />
+                <Text style={[styles.modalActionText, { color: themeColors.danger }]}>Eliminar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleEditVenta}
+                disabled={isSubmitting}
+                style={[styles.modalActionBtn, { backgroundColor: themeColors.accent + '15', borderColor: themeColors.accent }]}
+              >
+                <Ionicons name="create-outline" size={20} color={themeColors.accent} />
+                <Text style={[styles.modalActionText, { color: themeColors.accent }]}>Editar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1610,5 +1947,119 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.two,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.four,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 600,
+    maxHeight: '90%',
+    borderRadius: BorderRadius.large,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.three,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modalCloseBtn: {
+    padding: Spacing.half,
+  },
+  modalScrollContent: {
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+  modalCard: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.medium,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  modalSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: Spacing.one,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  modalLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  modalDivider: {
+    height: 1,
+    marginVertical: Spacing.one,
+  },
+  modalPartidaItem: {
+    borderBottomWidth: 1,
+    paddingBottom: Spacing.one,
+    marginBottom: Spacing.one,
+    borderBottomColor: 'rgba(128,128,128,0.15)',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: Spacing.three,
+    borderTopWidth: 1,
+    gap: Spacing.two,
+  },
+  modalActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.two,
+    borderRadius: BorderRadius.medium,
+    borderWidth: 1,
+    gap: Spacing.one,
+  },
+  modalActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  editingBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.three,
+    borderBottomWidth: 1,
+  },
+  editingBannerText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  cancelEditBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: BorderRadius.pill,
+    borderWidth: 1,
   },
 });

@@ -25,12 +25,9 @@ export default function RootLayout() {
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="(empleado)/dashboard" />
-        <Stack.Screen name="(empleado)/formulario" />
-        <Stack.Screen name="(admin)/dashboard" />
-        <Stack.Screen name="(admin)/catalogos" />
-        <Stack.Screen name="(admin)/evidencias" />
-        <Stack.Screen name="(admin)/ventas" />
+        <Stack.Screen name="explore" />
+        <Stack.Screen name="(empleado)" />
+        <Stack.Screen name="(admin)" />
       </Stack>
     </ThemeProvider>
   );
