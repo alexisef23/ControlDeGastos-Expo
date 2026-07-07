@@ -1611,7 +1611,7 @@ export const ReportGenerator = {
               <p class="subtitle" style="margin: 5px 0 0 0; font-size: 12px; color: #777;">Generado el: ${new Date().toLocaleString()}</p>
             </td>
             <td style="text-align: right; vertical-align: middle; border: none; padding: 0;">
-              <img src="data:image/png;base64,${LOGO_BASE64}" style="width: 60px; height: 60px; object-fit: contain;" />
+              <img src="${LOGO_BASE64}" style="width: 60px; height: 60px; object-fit: contain;" />
             </td>
           </tr>
         </table>
