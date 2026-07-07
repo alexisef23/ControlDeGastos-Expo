@@ -332,15 +332,19 @@ export default function AdminDashboard() {
 
     setIsProcessingAction(true);
     try {
+      const oldVentaId = selectedGasto.venta_id;
       const updatePayload: Partial<Gasto> = { status };
       
       if (status === 'APPROVED') {
         updatePayload.approved_at = new Date().toISOString();
-      } else if (status === 'ACTION_REQUIRED') {
-        updatePayload.rejection_feedback = rejectionFeedback.trim();
-      } else if (status === 'PENDING') {
-        updatePayload.approved_at = null;
-        updatePayload.rejection_feedback = null;
+      } else {
+        updatePayload.venta_id = null;
+        if (status === 'ACTION_REQUIRED') {
+          updatePayload.rejection_feedback = rejectionFeedback.trim();
+        } else if (status === 'PENDING') {
+          updatePayload.approved_at = null;
+          updatePayload.rejection_feedback = null;
+        }
       }
 
       const { error } = await supabase
@@ -349,6 +353,10 @@ export default function AdminDashboard() {
         .eq('id', selectedGasto.id);
 
       if (error) throw error;
+
+      if (oldVentaId) {
+        await recalculateVentaTotals(oldVentaId);
+      }
 
       // Generar registro de auditoría
       await supabase.from('audit_logs').insert([
