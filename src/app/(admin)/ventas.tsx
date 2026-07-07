@@ -1255,7 +1255,7 @@ export default function VentasScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: themeColors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
-        <TouchableOpacity onPress={() => (editingVentaId ? cancelEditing() : router.back())} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => (editingVentaId ? cancelEditing() : router.replace('/(admin)/dashboard' as any))} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={themeColors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: themeColors.text }]}>

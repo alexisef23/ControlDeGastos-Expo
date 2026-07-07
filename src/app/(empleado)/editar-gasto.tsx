@@ -130,6 +130,7 @@ export default function EditarGastoForm() {
 
   const [incluyePropina, setIncluyePropina] = useState<boolean | null>(null);
   const [montoPropina, setMontoPropina] = useState<string>('');
+  const [esComida, setEsComida] = useState<boolean>(false);
 
 
 
@@ -174,13 +175,11 @@ export default function EditarGastoForm() {
     // 1. Validar límite de alimentos general de $280 MXN por persona (comida + propina)
     const valMonto = Number(monto);
     if (valMonto && !isNaN(valMonto) && selectedCategoria) {
-      const isAlimentos = selectedCategoria.toLowerCase().includes('alimento') ||
-                          selectedCategoria.toLowerCase().includes('comida') ||
-                          selectedCategoria.toLowerCase().includes('consumo');
+      const isAlimentos = esComida;
 
       const cantidadPersonas = 1 + selectedEmpleados.length;
       const limiteCalculado = 280 * cantidadPersonas;
-      const totalGasto = valMonto + (incluyePropina === false ? Number(montoPropina || 0) : 0);
+      const totalGasto = valMonto + (esComida && incluyePropina === false ? Number(montoPropina || 0) : 0);
 
       if (isAlimentos && totalGasto > limiteCalculado) {
         alerts.push(`Límite de alimentos excedido: el límite general por comida es de $${limiteCalculado} MXN para ${cantidadPersonas} personas (Total con Propina: $${totalGasto} MXN)`);
@@ -276,6 +275,17 @@ export default function EditarGastoForm() {
             setMotivoSinFactura(data.motivo_sin_factura || '');
             if (data.factura_url) setFacturaUri(data.factura_url);
             
+            const hasShared = data.justificacion && (
+              data.justificacion.includes('[Consumo compartido con:') ||
+              data.justificacion.includes('[Propina incluida')
+            );
+            const isMeal = (data.categoria && (
+              data.categoria.toLowerCase().includes('alimento') ||
+              data.categoria.toLowerCase().includes('comida') ||
+              data.categoria.toLowerCase().includes('consumo')
+            )) || hasShared;
+            setEsComida(!!isMeal);
+
             // Si el gasto ya fue guardado antes y tenía propina, es difícil inferir de la justificación, 
             // pero podemos asumir que incluyePropina = true para que no requiera el montoPropina forzado.
             setIncluyePropina(true); 
@@ -628,14 +638,14 @@ export default function EditarGastoForm() {
     
     const dbFecha = formatFriendlyToDb(fechaComprobante);
     
-    const totalGasto = Number(monto) + (incluyePropina === false ? Number(montoPropina || 0) : 0);
+    const totalGasto = Number(monto) + (esComida && incluyePropina === false ? Number(montoPropina || 0) : 0);
     
     let finalJustificacion = justificacion.trim();
-    if (selectedEmpleados.length > 0) {
+    if (esComida && selectedEmpleados.length > 0) {
       const nombresShared = selectedEmpleados.map(e => e.nombre).join(', ');
       finalJustificacion = `${finalJustificacion}\n\n[Consumo compartido con: ${nombresShared} (Total: ${1 + selectedEmpleados.length} personas)]`;
     }
-    if (incluyePropina !== null) {
+    if (esComida && incluyePropina !== null) {
       finalJustificacion = `${finalJustificacion}\n\n[Propina incluida en ticket: ${incluyePropina ? 'Sí' : 'No'}]`;
       if (incluyePropina === false && montoPropina) {
         finalJustificacion = `${finalJustificacion}\n\n[Monto de propina dejado aparte: $${montoPropina} MXN]`;
@@ -743,13 +753,15 @@ export default function EditarGastoForm() {
         showAlert('Evidencia requerida', 'Por favor toma una fotografía o selecciona un ticket.');
         return;
       }
-      if (incluyePropina === null) {
-        showAlert('Validación', 'Por favor especifica si el ticket incluye propina.');
-        return;
-      }
-      if (incluyePropina === false && (!montoPropina || isNaN(Number(montoPropina)) || Number(montoPropina) < 0)) {
-        showAlert('Validación', 'Por favor ingresa un monto de propina válido.');
-        return;
+      if (esComida) {
+        if (incluyePropina === null) {
+          showAlert('Validación', 'Por favor especifica si el ticket incluye propina.');
+          return;
+        }
+        if (incluyePropina === false && (!montoPropina || isNaN(Number(montoPropina)) || Number(montoPropina) < 0)) {
+          showAlert('Validación', 'Por favor ingresa un monto de propina válido.');
+          return;
+        }
       }
     }
     if (currentStep === 2) {
@@ -851,137 +863,190 @@ export default function EditarGastoForm() {
               </View>
 
 
-              {/* Selector de Empleados Compartidos */}
-              <View style={[styles.customDropdownContainer, { marginTop: Spacing.two, zIndex: 50 }]}>
-                <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>
-                  ¿Con cuántos empleados compartiste este consumo?
+              {/* Pregunta si es Comida */}
+              <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginTop: Spacing.two, marginBottom: Spacing.one }]}>
+                <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>
+                  ¿Este gasto es de una comida (Alimentos)? *
                 </Text>
-                <TouchableOpacity
-                  style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
-                  onPress={() => setShowEmpList(!showEmpList)}
-                >
-                  <Text style={{ color: selectedEmpleados.length > 0 ? themeColors.text : themeColors.textSecondary }}>
-                    {selectedEmpleados.length === 0
-                      ? 'Solo yo (1 persona)'
-                      : `Yo + ${selectedEmpleados.length} empleado(s) (${1 + selectedEmpleados.length} personas)`
-                    }
-                  </Text>
-                  <Ionicons name={showEmpList ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
-                </TouchableOpacity>
+                <View style={styles.paymentSelector}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEsComida(true);
+                    }}
+                    style={[
+                      styles.paymentOption,
+                      {
+                        backgroundColor: esComida ? themeColors.accent : themeColors.backgroundElement,
+                        borderColor: esComida ? 'transparent' : themeColors.border,
+                        flex: 1,
+                        alignItems: 'center',
+                        paddingVertical: Spacing.one,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.paymentOptionText, { color: esComida ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                      Sí
+                    </Text>
+                  </TouchableOpacity>
 
-                {showEmpList && (
-                  <Pressable onPress={() => {}} style={{ width: '100%' }}>
-                    <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, maxHeight: 200 }]}>
-                      <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
-                        {allUsers
-                          .filter(u => u.id !== currentUser?.id)
-                          .map((user) => {
-                            const isSelected = selectedEmpleados.some(e => e.id === user.id);
-                            return (
-                              <TouchableOpacity
-                                key={user.id}
-                                style={[
-                                  styles.dropdownItem,
-                                  {
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                  }
-                                ]}
-                                onPress={() => {
-                                  if (isSelected) {
-                                    setSelectedEmpleados(prev => prev.filter(e => e.id !== user.id));
-                                  } else {
-                                    setSelectedEmpleados(prev => [...prev, user]);
-                                  }
-                                }}
-                              >
-                                <Text style={{ color: themeColors.text }}>{user.nombre}</Text>
-                                <Ionicons
-                                  name={isSelected ? 'checkbox-outline' : 'square-outline'}
-                                  size={20}
-                                  color={isSelected ? themeColors.accent : themeColors.textSecondary}
-                                />
-                              </TouchableOpacity>
-                            );
-                          })}
-                      </ScrollView>
-                    </View>
-                  </Pressable>
-                )}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEsComida(false);
+                      setIncluyePropina(null);
+                      setMontoPropina('');
+                      setSelectedEmpleados([]);
+                    }}
+                    style={[
+                      styles.paymentOption,
+                      {
+                        backgroundColor: !esComida ? themeColors.accent : themeColors.backgroundElement,
+                        borderColor: !esComida ? 'transparent' : themeColors.border,
+                        flex: 1,
+                        alignItems: 'center',
+                        paddingVertical: Spacing.one,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.paymentOptionText, { color: !esComida ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                      No
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              {imageUri && (
+              {esComida && (
                 <>
-                  <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginBottom: Spacing.two }]}>
-                    <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>
-                      ¿El ticket incluye propina? *
+                  {/* Selector de Empleados Compartidos */}
+                  <View style={[styles.customDropdownContainer, { marginTop: Spacing.two, zIndex: 50 }]}>
+                    <Text style={[styles.dropdownLabel, { color: themeColors.text }]}>
+                      ¿Con cuántos empleados compartiste este consumo?
                     </Text>
-                    <View style={styles.paymentSelector}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setIncluyePropina(true);
-                          setMontoPropina('');
-                        }}
-                        style={[
-                          styles.paymentOption,
-                          {
-                            backgroundColor: incluyePropina === true ? themeColors.accent : themeColors.backgroundElement,
-                            borderColor: incluyePropina === true ? 'transparent' : themeColors.border,
-                            flex: 1,
-                            alignItems: 'center',
-                            paddingVertical: Spacing.one,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.paymentOptionText, { color: incluyePropina === true ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
-                          Sí
-                        </Text>
-                      </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.dropdownTrigger, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}
+                      onPress={() => setShowEmpList(!showEmpList)}
+                    >
+                      <Text style={{ color: selectedEmpleados.length > 0 ? themeColors.text : themeColors.textSecondary }}>
+                        {selectedEmpleados.length === 0
+                          ? 'Solo yo (1 persona)'
+                          : `Yo + ${selectedEmpleados.length} empleado(s) (${1 + selectedEmpleados.length} personas)`
+                        }
+                      </Text>
+                      <Ionicons name={showEmpList ? 'chevron-up' : 'chevron-down'} size={18} color={themeColors.text} />
+                    </TouchableOpacity>
 
-                      <TouchableOpacity
-                        onPress={() => {
-                          setIncluyePropina(false);
-                        }}
-                        style={[
-                          styles.paymentOption,
-                          {
-                            backgroundColor: incluyePropina === false ? themeColors.accent : themeColors.backgroundElement,
-                            borderColor: incluyePropina === false ? 'transparent' : themeColors.border,
-                            flex: 1,
-                            alignItems: 'center',
-                            paddingVertical: Spacing.one,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.paymentOptionText, { color: incluyePropina === false ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
-                          No
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {incluyePropina === false && (
-                      <View style={{ marginTop: Spacing.two }}>
-                        <CustomInput
-                          label="¿Cuánto se dejó de propina? ($ MXN) *"
-                          placeholder="0.00"
-                          keyboardType="numeric"
-                          value={montoPropina}
-                          onChangeText={setMontoPropina}
-                          iconName="logo-usd"
-                        />
-                      </View>
+                    {showEmpList && (
+                      <Pressable onPress={() => {}} style={{ width: '100%' }}>
+                        <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, maxHeight: 200 }]}>
+                          <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                            {allUsers
+                              .filter(u => u.id !== currentUser?.id)
+                              .map((user) => {
+                                const isSelected = selectedEmpleados.some(e => e.id === user.id);
+                                return (
+                                  <TouchableOpacity
+                                    key={user.id}
+                                    style={[
+                                      styles.dropdownItem,
+                                      {
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                      }
+                                    ]}
+                                    onPress={() => {
+                                      if (isSelected) {
+                                        setSelectedEmpleados(prev => prev.filter(e => e.id !== user.id));
+                                      } else {
+                                        setSelectedEmpleados(prev => [...prev, user]);
+                                      }
+                                    }}
+                                  >
+                                    <Text style={{ color: themeColors.text }}>{user.nombre}</Text>
+                                    <Ionicons
+                                      name={isSelected ? 'checkbox-outline' : 'square-outline'}
+                                      size={20}
+                                      color={isSelected ? themeColors.accent : themeColors.textSecondary}
+                                    />
+                                  </TouchableOpacity>
+                                );
+                              })}
+                          </ScrollView>
+                        </View>
+                      </Pressable>
                     )}
                   </View>
 
-                  <View style={styles.scanWrapper}>
-                    <View style={styles.footerNav}>
-                      <View style={{ flex: 1 }} />
-                      <CustomButton title="Siguiente" onPress={nextStep} style={styles.navBtn} />
+                  {imageUri && (
+                    <View style={[styles.innerCard, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border, marginTop: Spacing.two, marginBottom: Spacing.two }]}>
+                      <Text style={[styles.selectorLabel, { color: themeColors.text, fontSize: 13, marginBottom: Spacing.one }]}>
+                        ¿El ticket incluye propina? *
+                      </Text>
+                      <View style={styles.paymentSelector}>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setIncluyePropina(true);
+                            setMontoPropina('');
+                          }}
+                          style={[
+                            styles.paymentOption,
+                            {
+                              backgroundColor: incluyePropina === true ? themeColors.accent : themeColors.backgroundElement,
+                              borderColor: incluyePropina === true ? 'transparent' : themeColors.border,
+                              flex: 1,
+                              alignItems: 'center',
+                              paddingVertical: Spacing.one,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.paymentOptionText, { color: incluyePropina === true ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                            Sí
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            setIncluyePropina(false);
+                          }}
+                          style={[
+                            styles.paymentOption,
+                            {
+                              backgroundColor: incluyePropina === false ? themeColors.accent : themeColors.backgroundElement,
+                              borderColor: incluyePropina === false ? 'transparent' : themeColors.border,
+                              flex: 1,
+                              alignItems: 'center',
+                              paddingVertical: Spacing.one,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.paymentOptionText, { color: incluyePropina === false ? '#ffffff' : themeColors.text, fontSize: 12 }]}>
+                            No
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {incluyePropina === false && (
+                        <View style={{ marginTop: Spacing.two }}>
+                          <CustomInput
+                            label="¿Cuánto se dejó de propina? ($ MXN) *"
+                            placeholder="Monto de la propina"
+                            keyboardType="numeric"
+                            value={montoPropina}
+                            onChangeText={setMontoPropina}
+                            iconName="cash-outline"
+                          />
+                        </View>
+                      )}
                     </View>
-                  </View>
-              </>
-            )}
+                  )}
+                </>
+              )}
+
+              <View style={styles.scanWrapper}>
+                <View style={styles.footerNav}>
+                  <View style={{ flex: 1 }} />
+                  <CustomButton title="Siguiente" onPress={nextStep} style={styles.navBtn} />
+                </View>
+              </View>
 
 
             </View>

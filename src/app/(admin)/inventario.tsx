@@ -1387,7 +1387,7 @@ export default function InventarioDashboard() {
                 </TouchableOpacity>
 
                 {showCliDropdown && (
-                  <View style={{ width: '100%', zIndex: 1000 }}>
+                  <Pressable onPress={(e: any) => e.stopPropagation()} style={{ width: '100%', zIndex: 1000 }}>
                     <View style={[styles.dropdownList, { backgroundColor: themeColors.backgroundElement, borderColor: themeColors.border }]}>
                       <CustomInput
                         placeholder="Buscar o agregar cliente..."
@@ -1397,7 +1397,7 @@ export default function InventarioDashboard() {
                         style={{ margin: Spacing.one, height: 40 }}
                       />
                       <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 200, paddingHorizontal: Spacing.half }} keyboardShouldPersistTaps="handled">
-                        {clienteSearch.trim().length > 0 && !clientes.some(c => c.nombre.toLowerCase() === clienteSearch.trim().toLowerCase()) && (
+                        {clienteSearch.trim().length > 0 && !clientes.some(c => c.nombre && c.nombre.toLowerCase() === clienteSearch.trim().toLowerCase()) && (
                           <TouchableOpacity
                             style={[styles.dropdownItem, { backgroundColor: themeColors.accent + '15', flexDirection: 'row', alignItems: 'center', gap: Spacing.one }]}
                             onPress={() => handleAddNewCliente(clienteSearch)}
@@ -1409,14 +1409,14 @@ export default function InventarioDashboard() {
                           </TouchableOpacity>
                         )}
                         {clientes
-                          .filter(cli => cli.nombre.toLowerCase().includes(clienteSearch.toLowerCase()))
+                          .filter(cli => cli.nombre && cli.nombre.toLowerCase().includes(clienteSearch.toLowerCase()))
                           .map((cli, index, array) => (
                             <TouchableOpacity
                               key={cli.id}
                               style={[
                                 styles.dropdownItem,
                                 index === array.length - 1 && { borderBottomWidth: 0 },
-                                { flexDirection: 'row', alignItems: 'center', gap: Spacing.one }
+                                  { flexDirection: 'row', alignItems: 'center', gap: Spacing.one }
                               ]}
                               onPress={() => {
                                 setConsumoCliente(cli.nombre);
@@ -1430,7 +1430,7 @@ export default function InventarioDashboard() {
                           ))}
                       </ScrollView>
                     </View>
-                  </View>
+                  </Pressable>
                 )}
               </View>
             </View>
