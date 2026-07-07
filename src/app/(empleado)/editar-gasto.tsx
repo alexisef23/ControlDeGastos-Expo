@@ -112,7 +112,7 @@ export default function EditarGastoForm() {
   };
 
   const [fechaComprobante, setFechaComprobante] = useState(getTodayFriendly());
-  const [tipoServicioProyecto, setTipoServicioProyecto] = useState<'Servicio' | 'Proyecto' | null>(null);
+  const [tipoServicioProyecto, setTipoServicioProyecto] = useState<'Servicio' | 'Proyecto' | 'Venta' | null>(null);
   const [detalleServicioProyecto, setDetalleServicioProyecto] = useState('');
   const [sucursal, setSucursal] = useState('');
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'tarjeta_credito' | 'tarjeta_debito'>('efectivo');
@@ -614,12 +614,12 @@ export default function EditarGastoForm() {
     }
 
     if (!tipoServicioProyecto) {
-      showAlert('Validación', 'Por favor selecciona si es Servicio o Proyecto.');
+      showAlert('Validación', 'Por favor selecciona si es Servicio, Proyecto o Venta.');
       return;
     }
 
     if (!detalleServicioProyecto.trim()) {
-      showAlert('Validación', 'Por favor ingresa el detalle del Servicio o Proyecto.');
+      showAlert('Validación', 'Por favor ingresa el detalle del Servicio, Proyecto o Venta.');
       return;
     }
 
@@ -1145,9 +1145,9 @@ export default function EditarGastoForm() {
                 iconName="business-outline"
               />
 
-              {/* Selector de Servicio/Proyecto */}
+              {/* Selector de Tipo: Servicio / Proyecto / Venta */}
               <View style={{ marginBottom: Spacing.two }}>
-                <Text style={{ color: themeColors.text, marginBottom: Spacing.half, fontWeight: '500', fontSize: 14, paddingLeft: Spacing.half }}>Servicio o Proyecto *</Text>
+                <Text style={{ color: themeColors.text, marginBottom: Spacing.half, fontWeight: '500', fontSize: 14, paddingLeft: Spacing.half }}>Tipo de Gasto *</Text>
                 <View style={{ flexDirection: 'row', gap: Spacing.one }}>
                   <TouchableOpacity
                     style={{
@@ -1161,7 +1161,7 @@ export default function EditarGastoForm() {
                     }}
                     onPress={() => setTipoServicioProyecto('Servicio')}
                   >
-                    <Text style={{ color: tipoServicioProyecto === 'Servicio' ? themeColors.primary : themeColors.textSecondary, fontWeight: '600' }}>Servicio</Text>
+                    <Text style={{ color: tipoServicioProyecto === 'Servicio' ? themeColors.primary : themeColors.textSecondary, fontWeight: '600', fontSize: 13 }}>Servicio</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={{
@@ -1175,7 +1175,21 @@ export default function EditarGastoForm() {
                     }}
                     onPress={() => setTipoServicioProyecto('Proyecto')}
                   >
-                    <Text style={{ color: tipoServicioProyecto === 'Proyecto' ? themeColors.primary : themeColors.textSecondary, fontWeight: '600' }}>Proyecto</Text>
+                    <Text style={{ color: tipoServicioProyecto === 'Proyecto' ? themeColors.primary : themeColors.textSecondary, fontWeight: '600', fontSize: 13 }}>Proyecto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      padding: Spacing.one,
+                      borderRadius: BorderRadius.medium,
+                      borderWidth: 1,
+                      borderColor: tipoServicioProyecto === 'Venta' ? themeColors.primary : themeColors.border,
+                      backgroundColor: tipoServicioProyecto === 'Venta' ? themeColors.primary + '20' : themeColors.backgroundElement,
+                      alignItems: 'center'
+                    }}
+                    onPress={() => setTipoServicioProyecto('Venta')}
+                  >
+                    <Text style={{ color: tipoServicioProyecto === 'Venta' ? themeColors.primary : themeColors.textSecondary, fontWeight: '600', fontSize: 13 }}>Venta</Text>
                   </TouchableOpacity>
                 </View>
               </View>

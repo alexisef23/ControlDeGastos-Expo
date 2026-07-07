@@ -41,6 +41,15 @@ export const GeminiService = {
   Si no detectas ninguna de estas infracciones de política, usa null)
 }`;
 
+    // Gemini inlineData.data must be pure base64 (no "data:image/...;base64," prefix)
+    let cleanBase64 = base64Image;
+    let detectedMime = mimeType;
+    const dataUrlMatch = base64Image.match(/^data:([a-zA-Z0-9+\-./]+);base64,(.+)$/s);
+    if (dataUrlMatch) {
+      detectedMime = dataUrlMatch[1];
+      cleanBase64 = dataUrlMatch[2];
+    }
+
     const requestBody = {
       contents: [
         {
@@ -48,8 +57,8 @@ export const GeminiService = {
             { text: prompt },
             {
               inlineData: {
-                mimeType: mimeType,
-                data: base64Image,
+                mimeType: detectedMime,
+                data: cleanBase64,
               },
             },
           ],
