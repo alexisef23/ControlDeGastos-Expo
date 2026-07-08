@@ -2064,6 +2064,18 @@ export default function AdminDashboard() {
                         loading={isProcessingAction}
                         icon={<Ionicons name="arrow-undo-outline" size={20} color={themeColors.text} style={{ marginRight: 8 }} />}
                       />
+                      {selectedGasto.status === 'ACTION_REQUIRED' && (
+                        <CustomButton
+                          title="Editar Gasto"
+                          onPress={() => {
+                            setReviewModalVisible(false);
+                            router.push(`/(admin)/editar-gasto?id=${selectedGasto.id}` as any);
+                          }}
+                          variant="primary"
+                          style={{ width: '100%', marginTop: Spacing.one }}
+                          loading={isProcessingAction}
+                        />
+                      )}
                     </View>
                   )}
                 </View>
